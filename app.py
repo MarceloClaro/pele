@@ -789,7 +789,7 @@ def main():
             """)
 
   
-    num_classes = st.sidebar.number_input("Número de Classes:", min_value=1, step=2)
+    num_classes = st.sidebar.number_input("Número de Classes:", min_value=2, step=1)
     #_______________________________________________________________________________________
     # Sidebar com o conteúdo explicativo e fórmula LaTeX
     with st.sidebar:

@@ -277,7 +277,7 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
         st.error("Divisão dos dados resultou em um conjunto vazio. Ajuste os percentuais de divisão.")
         return None
 
-    # **NOVO CÓDIGO: Criar dataframes para os conjuntos de treinamento, validação e teste**
+    # Criar dataframes para os conjuntos de treinamento, validação e teste
     # Mapear índices para caminhos de arquivos e rótulos
     train_samples = [full_dataset.samples[i] for i in train_indices]
     valid_samples = [full_dataset.samples[i] for i in valid_indices]
@@ -737,10 +737,6 @@ def visualize_activations(model, image, class_names, model_name, segmentation_mo
     """
     Visualiza as ativações na imagem usando Grad-CAM e adiciona a segmentação de objetos.
     """
-    # Ativar gradientes para todos os parâmetros do modelo
-    for param in model.parameters():
-        param.requires_grad = True
-
     model.eval()  # Coloca o modelo em modo de avaliação
     input_tensor = test_transforms(image).unsqueeze(0).to(device)
 
@@ -756,15 +752,16 @@ def visualize_activations(model, image, class_names, model_name, segmentation_mo
     # Criar o objeto CAM usando torchcam
     cam_extractor = SmoothGradCAMpp(model, target_layer=target_layer)
 
-    # Habilitar gradientes explicitamente
-    with torch.set_grad_enabled(True):
-        out = model(input_tensor)  # Faz a previsão
-        probabilities = torch.nn.functional.softmax(out, dim=1)
-        confidence, pred = torch.max(probabilities, 1)  # Obtém a classe predita
-        pred_class = pred.item()
+    # Usar o gerenciador de contexto para garantir que os hooks sejam removidos
+    with cam_extractor:
+        with torch.set_grad_enabled(True):
+            out = model(input_tensor)  # Faz a previsão
+            probabilities = torch.nn.functional.softmax(out, dim=1)
+            confidence, pred = torch.max(probabilities, 1)  # Obtém a classe predita
+            pred_class = pred.item()
 
-    # Gerar o mapa de ativação
-    activation_map = cam_extractor(pred_class, out)
+            # Gerar o mapa de ativação
+            activation_map = cam_extractor(pred_class, out)
 
     # Converter o mapa de ativação para PIL Image
     activation_map = activation_map[0]

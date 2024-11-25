@@ -1,3 +1,5 @@
+# (As importações e configurações iniciais permanecem as mesmas)
+
 import os
 import zipfile
 import shutil
@@ -237,7 +239,12 @@ def apply_transforms_and_get_embeddings(dataset, model, transform, batch_size=16
     """
     Aplica as transformações às imagens, extrai os embeddings e retorna um DataFrame.
     """
-    data_loader = DataLoader(dataset, batch_size=batch_size, shuffle=False)
+    # Definir função de coleta personalizada
+    def pil_collate_fn(batch):
+        images, labels = zip(*batch)
+        return list(images), torch.tensor(labels)
+
+    data_loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, collate_fn=pil_collate_fn)
     embeddings_list = []
     labels_list = []
     file_paths_list = []
@@ -248,21 +255,24 @@ def apply_transforms_and_get_embeddings(dataset, model, transform, batch_size=16
     model_embedding.eval()
     model_embedding.to(device)
 
+    indices = dataset.indices if hasattr(dataset, 'indices') else list(range(len(dataset)))
+    index_pointer = 0  # Ponteiro para acompanhar os índices
+
     with torch.no_grad():
-        for batch in data_loader:
-            images, labels = batch
-            images_augmented = [transform(Image.fromarray(np.array(img))) for img in images]
+        for images, labels in data_loader:
+            images_augmented = [transform(img) for img in images]
             images_augmented = torch.stack(images_augmented).to(device)
             embeddings = model_embedding(images_augmented)
             embeddings = embeddings.view(embeddings.size(0), -1).cpu().numpy()
             embeddings_list.extend(embeddings)
             labels_list.extend(labels.numpy())
             augmented_images_list.extend([img.permute(1, 2, 0).numpy() for img in images_augmented.cpu()])
-            # Se o dataset tiver o atributo 'samples', podemos obter os caminhos dos arquivos
+            # Atualizar o file_paths_list para corresponder às imagens atuais
             if hasattr(dataset, 'dataset') and hasattr(dataset.dataset, 'samples'):
-                idx = dataset.indices if hasattr(dataset, 'indices') else list(range(len(dataset)))
-                file_paths = [dataset.dataset.samples[i][0] for i in idx]
+                batch_indices = indices[index_pointer:index_pointer + len(images)]
+                file_paths = [dataset.dataset.samples[i][0] for i in batch_indices]
                 file_paths_list.extend(file_paths)
+                index_pointer += len(images)
             else:
                 file_paths_list.extend(['N/A'] * len(labels))
 

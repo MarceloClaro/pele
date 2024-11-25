@@ -28,6 +28,10 @@ import base64
 from torchcam.methods import SmoothGradCAMpp
 import cv2
 import io
+import warnings
+
+# Supressão dos avisos relacionados ao torch.classes
+warnings.filterwarnings("ignore", category=UserWarning, message=".*torch.classes.*")
 
 # Definir o dispositivo (CPU ou GPU)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -142,26 +146,30 @@ def plot_class_distribution(dataset, classes):
     """
     # Extrair os rótulos das classes para todas as imagens no dataset
     labels = [label for _, label in dataset]
-    
-    # Contagem de cada classe
-    class_counts = np.bincount(labels)
-    
+
+    # Criar um DataFrame para facilitar o plot com Seaborn
+    df = pd.DataFrame({'Classe': labels})
+
     # Plotar o gráfico com as contagens
     fig, ax = plt.subplots(figsize=(10, 6))
-    sns.countplot(x=labels, ax=ax, palette="Set2")
+    sns.countplot(x='Classe', data=df, ax=ax, palette="Set2", hue='Classe', dodge=False)
 
     # Definir ticks e labels
     ax.set_xticks(range(len(classes)))
     ax.set_xticklabels(classes, rotation=45)
-    
+
+    # Remover a legenda
+    ax.get_legend().remove()
+
     # Adicionar as contagens acima das barras
+    class_counts = df['Classe'].value_counts().sort_index()
     for i, count in enumerate(class_counts):
         ax.text(i, count, str(count), ha='center', va='bottom', fontweight='bold')
-    
+
     ax.set_title("Distribuição das Classes (Quantidade de Imagens)")
     ax.set_xlabel("Classes")
     ax.set_ylabel("Número de Imagens")
-    
+
     st.pyplot(fig)
 
 def get_model(model_name, num_classes, dropout_p=0.5, fine_tune=False):
@@ -581,7 +589,7 @@ def visualize_clusters(features, true_labels, hierarchical_labels, kmeans_labels
 
     # Mapear os rótulos verdadeiros para os nomes das classes
     true_labels_named = [classes[label] for label in true_labels]
-    
+
     # Usar as cores distintas e visíveis para garantir que os clusters sejam claramente separados
     color_palette = sns.color_palette("tab10", len(set(true_labels)))
 
@@ -647,9 +655,13 @@ def visualize_activations(model, image, class_names, model_name, segmentation_mo
     """
     Visualiza as ativações na imagem usando Grad-CAM e adiciona a segmentação de objetos.
     """
+    # Ativar gradientes para todos os parâmetros do modelo
+    for param in model.parameters():
+        param.requires_grad = True
+
     model.eval()  # Coloca o modelo em modo de avaliação
     input_tensor = test_transforms(image).unsqueeze(0).to(device)
-    
+
     # Verificar se o modelo é suportado
     if model_name.startswith('ResNet'):
         target_layer = model.layer4[-1]
@@ -658,85 +670,85 @@ def visualize_activations(model, image, class_names, model_name, segmentation_mo
     else:
         st.error("Modelo não suportado para Grad-CAM.")
         return
-    
+
     # Criar o objeto CAM usando torchcam
     cam_extractor = SmoothGradCAMpp(model, target_layer=target_layer)
-    
+
     # Habilitar gradientes explicitamente
     with torch.set_grad_enabled(True):
         out = model(input_tensor)  # Faz a previsão
         _, pred = torch.max(out, 1)  # Obtém a classe predita
         pred_class = pred.item()
-    
+
     # Gerar o mapa de ativação
     activation_map = cam_extractor(pred_class, out)
-    
+
     # Obter o mapa de ativação da primeira imagem no lote
     activation_map = activation_map[0].cpu().numpy()
-    
+
     # Redimensionar o mapa de ativação para coincidir com o tamanho da imagem original
     activation_map_resized = cv2.resize(activation_map, (image.size[0], image.size[1]))
-    
+
     # Normalizar o mapa de ativação para o intervalo [0, 1]
     activation_map_resized = (activation_map_resized - activation_map_resized.min()) / (activation_map_resized.max() - activation_map_resized.min())
-    
+
     # Converter a imagem para array NumPy
     image_np = np.array(image)
-    
+
     # Converter o mapa de ativação em uma imagem RGB
     heatmap = cv2.applyColorMap(np.uint8(255 * activation_map_resized), cv2.COLORMAP_JET)
     heatmap = cv2.cvtColor(heatmap, cv2.COLOR_BGR2RGB)
-    
+
     # Sobrepor o mapa de ativação na imagem original
     superimposed_img = heatmap * 0.4 + image_np * 0.6
     superimposed_img = np.uint8(superimposed_img)
-    
+
     if segmentation and segmentation_model is not None:
         # Aplicar o modelo de segmentação
         segmentation_model.eval()
         with torch.no_grad():
             segmentation_output = segmentation_model(input_tensor)['out']
             segmentation_mask = torch.argmax(segmentation_output.squeeze(), dim=0).cpu().numpy()
-        
+
         # Mapear o índice da classe para uma cor
         segmentation_colored = label_to_color_image(segmentation_mask).astype(np.uint8)
         segmentation_colored = cv2.resize(segmentation_colored, (image.size[0], image.size[1]))
-        
+
         # Exibir as imagens: Imagem Original, Grad-CAM e Segmentação
         fig, ax = plt.subplots(1, 3, figsize=(15, 5))
-        
+
         # Imagem original
         ax[0].imshow(image_np)
         ax[0].set_title('Imagem Original')
         ax[0].axis('off')
-        
+
         # Imagem com Grad-CAM
         ax[1].imshow(superimposed_img)
         ax[1].set_title('Grad-CAM')
         ax[1].axis('off')
-        
+
         # Imagem com Segmentação
         ax[2].imshow(image_np)
         ax[2].imshow(segmentation_colored, alpha=0.6)
         ax[2].set_title('Segmentação')
         ax[2].axis('off')
-        
+
         # Exibir as imagens com o Streamlit
         st.pyplot(fig)
     else:
         # Exibir as imagens: Imagem Original e Grad-CAM
         fig, ax = plt.subplots(1, 2, figsize=(10, 5))
-        
+
         # Imagem original
         ax[0].imshow(image_np)
         ax[0].set_title('Imagem Original')
         ax[0].axis('off')
-        
+
         # Imagem com Grad-CAM
         ax[1].imshow(superimposed_img)
         ax[1].set_title('Grad-CAM')
         ax[1].axis('off')
-        
+
         # Exibir as imagens com o Streamlit
         st.pyplot(fig)
 
@@ -821,7 +833,7 @@ def main():
 
             # Carregar os pesos do modelo
             try:
-                state_dict = torch.load(model_file, map_location=device)
+                state_dict = torch.load(model_file, map_location=device, weights_only=True)
                 model.load_state_dict(state_dict)
                 st.success("Modelo carregado com sucesso!")
             except Exception as e:
@@ -835,6 +847,9 @@ def main():
                 st.write(f"Classes carregadas: {classes}")
             else:
                 st.error("Por favor, forneça o arquivo com as classes.")
+
+        else:
+            st.warning("Por favor, forneça o modelo e o número de classes.")
 
         # Opções para o modelo de segmentação
         st.subheader("Opções para o Modelo de Segmentação")

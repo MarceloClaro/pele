@@ -233,6 +233,89 @@ def get_segmentation_model(num_classes, fine_tune=False):
     model = model.to(device)
     return model
 
+def apply_transforms_and_get_embeddings(dataset, model, transform, batch_size=16):
+    """
+    Aplica as transformações às imagens, extrai os embeddings e retorna um DataFrame.
+    """
+    data_loader = DataLoader(dataset, batch_size=batch_size, shuffle=False)
+    embeddings_list = []
+    labels_list = []
+    file_paths_list = []
+    augmented_images_list = []
+
+    # Remover a última camada do modelo para extrair os embeddings
+    model_embedding = nn.Sequential(*list(model.children())[:-1])
+    model_embedding.eval()
+    model_embedding.to(device)
+
+    with torch.no_grad():
+        for batch in data_loader:
+            images, labels = batch
+            images_augmented = [transform(Image.fromarray(np.array(img))) for img in images]
+            images_augmented = torch.stack(images_augmented).to(device)
+            embeddings = model_embedding(images_augmented)
+            embeddings = embeddings.view(embeddings.size(0), -1).cpu().numpy()
+            embeddings_list.extend(embeddings)
+            labels_list.extend(labels.numpy())
+            augmented_images_list.extend([img.permute(1, 2, 0).numpy() for img in images_augmented.cpu()])
+            # Se o dataset tiver o atributo 'samples', podemos obter os caminhos dos arquivos
+            if hasattr(dataset, 'dataset') and hasattr(dataset.dataset, 'samples'):
+                idx = dataset.indices if hasattr(dataset, 'indices') else list(range(len(dataset)))
+                file_paths = [dataset.dataset.samples[i][0] for i in idx]
+                file_paths_list.extend(file_paths)
+            else:
+                file_paths_list.extend(['N/A'] * len(labels))
+
+    # Criar o DataFrame
+    df = pd.DataFrame({
+        'file_path': file_paths_list,
+        'label': labels_list,
+        'embedding': embeddings_list,
+        'augmented_image': augmented_images_list
+    })
+
+    return df
+
+def display_augmented_images(df, class_names):
+    """
+    Exibe algumas imagens augmentadas do DataFrame.
+    """
+    st.write("Visualização de algumas imagens após Data Augmentation:")
+    fig, axes = plt.subplots(1, 5, figsize=(15, 3))
+    sample_df = df.sample(n=5) if len(df) >= 5 else df
+    for idx, (i, row) in enumerate(sample_df.iterrows()):
+        image = row['augmented_image']
+        label = row['label']
+        axes[idx].imshow(image)
+        axes[idx].set_title(class_names[label])
+        axes[idx].axis('off')
+    st.pyplot(fig)
+
+def visualize_embeddings(df, class_names):
+    """
+    Reduz a dimensionalidade dos embeddings e os visualiza em 2D.
+    """
+    embeddings = np.vstack(df['embedding'].values)
+    labels = df['label'].values
+
+    # Redução de dimensionalidade com PCA
+    pca = PCA(n_components=2)
+    embeddings_2d = pca.fit_transform(embeddings)
+
+    # Criar DataFrame para plotagem
+    plot_df = pd.DataFrame({
+        'PC1': embeddings_2d[:, 0],
+        'PC2': embeddings_2d[:, 1],
+        'label': labels
+    })
+
+    # Plotar
+    plt.figure(figsize=(10, 7))
+    sns.scatterplot(data=plot_df, x='PC1', y='PC2', hue='label', palette='Set2', legend='full')
+    plt.title('Visualização dos Embeddings com PCA')
+    plt.legend(labels=class_names)
+    st.pyplot(plt)
+
 def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_rate, batch_size, train_split, valid_split, use_weighted_loss, l2_lambda, patience):
     """
     Função principal para treinamento do modelo de classificação.
@@ -251,11 +334,6 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
     visualize_data(full_dataset, full_dataset.classes)
     plot_class_distribution(full_dataset, full_dataset.classes)
 
-    # Criar o dataset personalizado com aumento de dados
-    train_dataset = CustomDataset(full_dataset, transform=train_transforms)
-    valid_dataset = CustomDataset(full_dataset, transform=test_transforms)
-    test_dataset = CustomDataset(full_dataset, transform=test_transforms)
-
     # Dividir os índices para treino, validação e teste
     dataset_size = len(full_dataset)
     indices = list(range(dataset_size))
@@ -268,25 +346,27 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
     valid_indices = indices[train_end:valid_end]
     test_indices = indices[valid_end:]
 
-    train_dataset = torch.utils.data.Subset(train_dataset, train_indices)
-    valid_dataset = torch.utils.data.Subset(valid_dataset, valid_indices)
-    test_dataset = torch.utils.data.Subset(test_dataset, test_indices)
-
     # Verificar se há dados suficientes em cada conjunto
-    if len(train_dataset) == 0 or len(valid_dataset) == 0 or len(test_dataset) == 0:
+    if len(train_indices) == 0 or len(valid_indices) == 0 or len(test_indices) == 0:
         st.error("Divisão dos dados resultou em um conjunto vazio. Ajuste os percentuais de divisão.")
         return None
 
-    # Criar dataframes para os conjuntos de treinamento, validação e teste
-    # Mapear índices para caminhos de arquivos e rótulos
-    train_samples = [full_dataset.samples[i] for i in train_indices]
-    valid_samples = [full_dataset.samples[i] for i in valid_indices]
-    test_samples = [full_dataset.samples[i] for i in test_indices]
+    # Criar datasets para treino, validação e teste
+    train_dataset = torch.utils.data.Subset(full_dataset, train_indices)
+    valid_dataset = torch.utils.data.Subset(full_dataset, valid_indices)
+    test_dataset = torch.utils.data.Subset(full_dataset, test_indices)
 
-    # Criar dataframes
-    train_df = pd.DataFrame(train_samples, columns=['file_path', 'label'])
-    valid_df = pd.DataFrame(valid_samples, columns=['file_path', 'label'])
-    test_df = pd.DataFrame(test_samples, columns=['file_path', 'label'])
+    # Criar dataframes para os conjuntos de treinamento, validação e teste com data augmentation e embeddings
+    model_for_embeddings = get_model(model_name, num_classes, dropout_p=0.5, fine_tune=False)
+    if model_for_embeddings is None:
+        return None
+
+    st.write("**Processando o conjunto de treinamento para incluir Data Augmentation e Embeddings...**")
+    train_df = apply_transforms_and_get_embeddings(train_dataset, model_for_embeddings, train_transforms, batch_size=batch_size)
+    st.write("**Processando o conjunto de validação...**")
+    valid_df = apply_transforms_and_get_embeddings(valid_dataset, model_for_embeddings, test_transforms, batch_size=batch_size)
+    st.write("**Processando o conjunto de teste...**")
+    test_df = apply_transforms_and_get_embeddings(test_dataset, model_for_embeddings, test_transforms, batch_size=batch_size)
 
     # Mapear rótulos para nomes de classes
     class_to_idx = full_dataset.class_to_idx
@@ -297,14 +377,21 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
     test_df['class_name'] = test_df['label'].map(idx_to_class)
 
     # Exibir dataframes no Streamlit
-    st.write("**Dataframe do Conjunto de Treinamento:**")
-    st.dataframe(train_df.head(10))  # Exibir as 10 primeiras entradas
+    st.write("**Dataframe do Conjunto de Treinamento com Data Augmentation e Embeddings:**")
+    st.dataframe(train_df.head())
 
     st.write("**Dataframe do Conjunto de Validação:**")
-    st.dataframe(valid_df.head(10))
+    st.dataframe(valid_df.head())
 
     st.write("**Dataframe do Conjunto de Teste:**")
-    st.dataframe(test_df.head(10))
+    st.dataframe(test_df.head())
+
+    # Exibir algumas imagens augmentadas
+    display_augmented_images(train_df, full_dataset.classes)
+
+    # Visualizar os embeddings
+    st.write("**Visualização dos Embeddings do Conjunto de Treinamento:**")
+    visualize_embeddings(train_df, full_dataset.classes)
 
     # Exibir contagem de imagens por classe nos conjuntos de treinamento e teste
     st.write("**Distribuição das Classes no Conjunto de Treinamento:**")
@@ -314,6 +401,11 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
     st.write("**Distribuição das Classes no Conjunto de Teste:**")
     test_class_counts = test_df['class_name'].value_counts()
     st.bar_chart(test_class_counts)
+
+    # Atualizar os datasets com as transformações para serem usados nos DataLoaders
+    train_dataset = CustomDataset(torch.utils.data.Subset(full_dataset, train_indices), transform=train_transforms)
+    valid_dataset = CustomDataset(torch.utils.data.Subset(full_dataset, valid_indices), transform=test_transforms)
+    test_dataset = CustomDataset(torch.utils.data.Subset(full_dataset, test_indices), transform=test_transforms)
 
     # Dataloaders
     g = torch.Generator()

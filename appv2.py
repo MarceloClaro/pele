@@ -59,12 +59,13 @@ set_seed(42)  # Definir a seed para reprodutibilidade
 
 # Definir as transformações para aumento de dados (aplicando transformações aleatórias)
 train_transforms = transforms.Compose([
+    transforms.RandomHorizontalFlip(p=0.5),
+    transforms.RandomRotation(degrees=45),
     transforms.RandomApply([
-        transforms.RandomHorizontalFlip(),
-        transforms.RandomRotation(degrees=90),
-        transforms.ColorJitter(),
-        transforms.RandomResizedCrop(224, scale=(0.8, 1.0)),
+        transforms.RandomRotation(degrees=(0, 360)),
         transforms.RandomAffine(degrees=0, shear=10),
+        transforms.RandomPerspective(distortion_scale=0.5, p=0.5),
+        transforms.ColorJitter(brightness=0.5, contrast=0.5, saturation=0.5),
     ], p=0.5),
     transforms.Resize(256),
     transforms.CenterCrop(224),
@@ -463,6 +464,10 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
     st.write("**Análise de Erros**")
     error_analysis(model, test_loader, full_dataset.classes)
 
+    # **Clusterização e Análise Comparativa**
+    st.write("**Análise de Clusterização**")
+    perform_clustering(model, test_loader, full_dataset.classes)
+
     # Liberar memória
     del train_loader, valid_loader
     gc.collect()
@@ -592,6 +597,68 @@ def error_analysis(model, dataloader, classes):
         st.pyplot(fig)
     else:
         st.write("Nenhuma imagem mal classificada encontrada.")
+
+def perform_clustering(model, dataloader, classes):
+    """
+    Realiza a extração de features e aplica algoritmos de clusterização.
+    """
+    # Extrair features usando o modelo pré-treinado
+    features = []
+    labels = []
+
+    # Remover a última camada (classificador)
+    model_feat = nn.Sequential(*list(model.children())[:-1])
+    model_feat.eval()
+    model_feat.to(device)
+
+    with torch.no_grad():
+        for inputs, label in dataloader:
+            inputs = inputs.to(device)
+            output = model_feat(inputs)
+            output = output.view(output.size(0), -1)
+            features.append(output.cpu().numpy())
+            labels.extend(label.numpy())
+
+    features = np.vstack(features)
+    labels = np.array(labels)
+
+    # Redução de dimensionalidade com PCA
+    pca = PCA(n_components=2)
+    features_2d = pca.fit_transform(features)
+
+    # Clusterização com KMeans
+    kmeans = KMeans(n_clusters=len(classes), random_state=42)
+    clusters_kmeans = kmeans.fit_predict(features)
+
+    # Clusterização Hierárquica
+    agglo = AgglomerativeClustering(n_clusters=len(classes))
+    clusters_agglo = agglo.fit_predict(features)
+
+    # Plotagem dos resultados
+    fig, ax = plt.subplots(1, 2, figsize=(14, 6))
+
+    # Gráfico KMeans
+    scatter = ax[0].scatter(features_2d[:, 0], features_2d[:, 1], c=clusters_kmeans, cmap='viridis')
+    legend1 = ax[0].legend(*scatter.legend_elements(), title="Clusters")
+    ax[0].add_artist(legend1)
+    ax[0].set_title('Clusterização com KMeans')
+
+    # Gráfico Agglomerative Clustering
+    scatter = ax[1].scatter(features_2d[:, 0], features_2d[:, 1], c=clusters_agglo, cmap='viridis')
+    legend1 = ax[1].legend(*scatter.legend_elements(), title="Clusters")
+    ax[1].add_artist(legend1)
+    ax[1].set_title('Clusterização Hierárquica')
+
+    st.pyplot(fig)
+
+    # Métricas de Avaliação
+    ari_kmeans = adjusted_rand_score(labels, clusters_kmeans)
+    nmi_kmeans = normalized_mutual_info_score(labels, clusters_kmeans)
+    ari_agglo = adjusted_rand_score(labels, clusters_agglo)
+    nmi_agglo = normalized_mutual_info_score(labels, clusters_agglo)
+
+    st.write(f"**KMeans** - ARI: {ari_kmeans:.4f}, NMI: {nmi_kmeans:.4f}")
+    st.write(f"**Agglomerative Clustering** - ARI: {ari_agglo:.4f}, NMI: {nmi_agglo:.4f}")
 
 def evaluate_image(model, image, classes):
     """

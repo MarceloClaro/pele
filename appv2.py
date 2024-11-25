@@ -31,6 +31,7 @@ from torchvision.transforms.functional import to_pil_image
 import cv2
 import io
 import warnings
+from datetime import datetime  # Importação para data e hora
 
 # Supressão dos avisos relacionados ao torch.classes
 warnings.filterwarnings("ignore", category=UserWarning, message=".*torch.classes.*")
@@ -374,13 +375,16 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
         with placeholder.container():
             fig, ax = plt.subplots(1, 2, figsize=(14, 5))
 
+            # Get current timestamp
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
             # Ajustar o intervalo de épocas
             epochs_range = range(1, len(st.session_state.train_losses) + 1)
 
             # Gráfico de Perda
             ax[0].plot(epochs_range, st.session_state.train_losses, label='Treino')
             ax[0].plot(epochs_range, st.session_state.valid_losses, label='Validação')
-            ax[0].set_title('Perda por Época')
+            ax[0].set_title(f'Perda por Época ({timestamp})')
             ax[0].set_xlabel('Épocas')
             ax[0].set_ylabel('Perda')
             ax[0].legend()
@@ -388,7 +392,7 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
             # Gráfico de Acurácia
             ax[1].plot(epochs_range, st.session_state.train_accuracies, label='Treino')
             ax[1].plot(epochs_range, st.session_state.valid_accuracies, label='Validação')
-            ax[1].set_title('Acurácia por Época')
+            ax[1].set_title(f'Acurácia por Época ({timestamp})')
             ax[1].set_xlabel('Épocas')
             ax[1].set_ylabel('Acurácia')
             ax[1].legend()
@@ -402,14 +406,26 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
 
         # Atualizar histórico na barra lateral
         with st.sidebar.expander("Histórico de Treinamento", expanded=True):
-            st.line_chart({
-                'Perda de Treino': st.session_state.train_losses,
-                'Perda de Validação': st.session_state.valid_losses
-            })
-            st.line_chart({
-                'Acurácia de Treino': st.session_state.train_accuracies,
-                'Acurácia de Validação': st.session_state.valid_accuracies
-            })
+            timestamp_hist = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            # Gráfico de Perda
+            fig_loss, ax_loss = plt.subplots(figsize=(5, 3))
+            ax_loss.plot(st.session_state.train_losses, label='Perda de Treino')
+            ax_loss.plot(st.session_state.valid_losses, label='Perda de Validação')
+            ax_loss.set_title(f'Histórico de Perda ({timestamp_hist})')
+            ax_loss.set_xlabel('Época')
+            ax_loss.set_ylabel('Perda')
+            ax_loss.legend()
+            st.pyplot(fig_loss)
+
+            # Gráfico de Acurácia
+            fig_acc, ax_acc = plt.subplots(figsize=(5, 3))
+            ax_acc.plot(st.session_state.train_accuracies, label='Acurácia de Treino')
+            ax_acc.plot(st.session_state.valid_accuracies, label='Acurácia de Validação')
+            ax_acc.set_title(f'Histórico de Acurácia ({timestamp_hist})')
+            ax_acc.set_xlabel('Época')
+            ax_acc.set_ylabel('Acurácia')
+            ax_acc.legend()
+            st.pyplot(fig_acc)
 
             # Botão para limpar o histórico
             if st.button("Limpar Histórico", key=f"limpar_historico_epoch_{epoch}"):
@@ -454,7 +470,7 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
     # Armazenar o modelo e as classes no st.session_state
     st.session_state['model'] = model
     st.session_state['classes'] = full_dataset.classes
-    st.session_state['model_name'] = model_name  # Armazena o nome do modelo
+    st.session_state['trained_model_name'] = model_name  # Armazena o nome do modelo treinado
 
     return model, full_dataset.classes
 
@@ -465,10 +481,13 @@ def plot_metrics(epochs, train_losses, valid_losses, train_accuracies, valid_acc
     epochs_range = range(1, len(train_losses)+1)
     fig, ax = plt.subplots(1, 2, figsize=(14, 5))
 
+    # Get current timestamp
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
     # Gráfico de Perda
     ax[0].plot(epochs_range, train_losses, label='Treino')
     ax[0].plot(epochs_range, valid_losses, label='Validação')
-    ax[0].set_title('Perda por Época')
+    ax[0].set_title(f'Perda por Época ({timestamp})')
     ax[0].set_xlabel('Épocas')
     ax[0].set_ylabel('Perda')
     ax[0].legend()
@@ -476,7 +495,7 @@ def plot_metrics(epochs, train_losses, valid_losses, train_accuracies, valid_acc
     # Gráfico de Acurácia
     ax[1].plot(epochs_range, train_accuracies, label='Treino')
     ax[1].plot(epochs_range, valid_accuracies, label='Validação')
-    ax[1].set_title('Acurácia por Época')
+    ax[1].set_title(f'Acurácia por Época ({timestamp})')
     ax[1].set_xlabel('Épocas')
     ax[1].set_ylabel('Acurácia')
     ax[1].legend()
@@ -830,7 +849,7 @@ def main():
                 state_dict = torch.load(model_file, map_location=device)
                 model.load_state_dict(state_dict)
                 st.session_state['model'] = model
-                st.session_state['model_name'] = model_name  # Armazena o nome do modelo
+                st.session_state['trained_model_name'] = model_name  # Armazena o nome do modelo treinado
                 st.success("Modelo carregado com sucesso!")
             except Exception as e:
                 st.error(f"Erro ao carregar o modelo: {e}")
@@ -921,7 +940,7 @@ def main():
                     state_dict = torch.load(model_file_eval, map_location=device)
                     model_eval.load_state_dict(state_dict)
                     st.session_state['model'] = model_eval
-                    st.session_state['model_name'] = model_name_eval  # Armazena o nome do modelo
+                    st.session_state['trained_model_name'] = model_name_eval  # Armazena o nome do modelo treinado
                     st.success("Modelo carregado com sucesso!")
                 except Exception as e:
                     st.error(f"Erro ao carregar o modelo: {e}")
@@ -940,7 +959,7 @@ def main():
         else:
             model_eval = st.session_state['model']
             classes_eval = st.session_state['classes']
-            model_name_eval = st.session_state.get('model_name', model_name)  # Usa o nome do modelo armazenado
+            model_name_eval = st.session_state.get('trained_model_name', model_name)  # Usa o nome do modelo armazenado
 
         eval_image_file = st.file_uploader("Faça upload da imagem para avaliação", type=["png", "jpg", "jpeg", "bmp", "gif"], key="eval_image_file")
         if eval_image_file is not None:
@@ -964,7 +983,7 @@ def main():
                     segmentation = st.checkbox("Visualizar Segmentação", value=True, key="segmentation_checkbox")
 
                 # Visualizar ativações e segmentação
-                model_name_for_visualization = st.session_state.get('model_name', 'ResNet18')
+                model_name_for_visualization = st.session_state.get('trained_model_name', 'ResNet18')
                 visualize_activations(st.session_state['model'], eval_image, st.session_state['classes'], model_name_for_visualization, segmentation_model=segmentation_model, segmentation=segmentation)
             else:
                 st.error("Modelo ou classes não carregados. Por favor, carregue um modelo ou treine um novo modelo.")

@@ -26,6 +26,8 @@ import gc
 import logging
 import base64
 from torchcam.methods import SmoothGradCAMpp
+from torchcam.utils import overlay_mask
+from torchvision.transforms.functional import to_pil_image
 import cv2
 import io
 import warnings
@@ -533,89 +535,6 @@ def error_analysis(model, dataloader, classes):
     else:
         st.write("Nenhuma imagem mal classificada encontrada.")
 
-def extract_features(dataset, model, batch_size):
-    """
-    Extrai características de um conjunto de dados usando um modelo pré-treinado.
-    """
-    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False, worker_init_fn=seed_worker)
-
-    features = []
-    labels = []
-
-    model.eval()
-    with torch.no_grad():
-        for inputs, lbls in dataloader:
-            inputs = inputs.to(device)
-            outputs = model(inputs)
-            outputs = outputs.view(outputs.size(0), -1)  # Flatten
-            features.append(outputs.cpu().numpy())
-            labels.extend(lbls.numpy())
-
-    features = np.concatenate(features, axis=0)
-    labels = np.array(labels)
-    return features, labels
-
-def perform_clustering(features, num_clusters):
-    """
-    Aplica algoritmos de clustering às características.
-    """
-    # Clustering Hierárquico
-    hierarchical = AgglomerativeClustering(n_clusters=num_clusters)
-    hierarchical_labels = hierarchical.fit_predict(features)
-
-    # K-Means
-    kmeans = KMeans(n_clusters=num_clusters, random_state=42)
-    kmeans_labels = kmeans.fit_predict(features)
-
-    return hierarchical_labels, kmeans_labels
-
-def evaluate_clustering(true_labels, cluster_labels, method_name):
-    """
-    Avalia os resultados do clustering comparando com as classes reais.
-    """
-    ari = adjusted_rand_score(true_labels, cluster_labels)
-    nmi = normalized_mutual_info_score(true_labels, cluster_labels)
-    st.write(f"**Métricas para {method_name}:**")
-    st.write(f"Adjusted Rand Index: {ari:.4f}")
-    st.write(f"Normalized Mutual Information Score: {nmi:.4f}")
-
-def visualize_clusters(features, true_labels, hierarchical_labels, kmeans_labels, classes):
-    """
-    Visualiza os clusters usando redução de dimensionalidade e inclui as classes verdadeiras com nomes de rótulos.
-    """
-    # Redução de dimensionalidade com PCA para visualizar os clusters em 2D
-    pca = PCA(n_components=2)
-    reduced_features = pca.fit_transform(features)
-
-    # Mapear os rótulos verdadeiros para os nomes das classes
-    true_labels_named = [classes[label] for label in true_labels]
-
-    # Usar as cores distintas e visíveis para garantir que os clusters sejam claramente separados
-    color_palette = sns.color_palette("tab10", len(set(true_labels)))
-
-    fig, axes = plt.subplots(1, 3, figsize=(21, 6))  # Agora temos 3 gráficos: Hierarchical, K-Means e classes verdadeiras
-
-    # Clustering Hierárquico
-    sns.scatterplot(x=reduced_features[:, 0], y=reduced_features[:, 1], hue=hierarchical_labels, palette="deep", ax=axes[0], legend='full')
-    axes[0].set_title('Clustering Hierárquico')
-    ari_hierarchical = adjusted_rand_score(true_labels, hierarchical_labels)
-    nmi_hierarchical = normalized_mutual_info_score(true_labels, hierarchical_labels)
-    axes[0].text(0.1, 0.9, f"ARI: {ari_hierarchical:.2f}\nNMI: {nmi_hierarchical:.2f}", horizontalalignment='center', verticalalignment='center', transform=axes[0].transAxes, bbox=dict(facecolor='white', alpha=0.5))
-
-    # K-Means Clustering
-    sns.scatterplot(x=reduced_features[:, 0], y=reduced_features[:, 1], hue=kmeans_labels, palette="deep", ax=axes[1], legend='full')
-    axes[1].set_title('K-Means Clustering')
-    ari_kmeans = adjusted_rand_score(true_labels, kmeans_labels)
-    nmi_kmeans = normalized_mutual_info_score(true_labels, kmeans_labels)
-    axes[1].text(0.1, 0.9, f"ARI: {ari_kmeans:.2f}\nNMI: {nmi_kmeans:.2f}", horizontalalignment='center', verticalalignment='center', transform=axes[1].transAxes, bbox=dict(facecolor='white', alpha=0.5))
-
-    # Classes verdadeiras
-    sns.scatterplot(x=reduced_features[:, 0], y=reduced_features[:, 1], hue=true_labels_named, palette=color_palette, ax=axes[2], legend='full')
-    axes[2].set_title('Classes Verdadeiras')
-
-    # Exibir os gráficos
-    st.pyplot(fig)
-
 def evaluate_image(model, image, classes):
     """
     Avalia uma única imagem e retorna a classe predita e a confiança.
@@ -664,9 +583,9 @@ def visualize_activations(model, image, class_names, model_name, segmentation_mo
 
     # Verificar se o modelo é suportado
     if model_name.startswith('ResNet'):
-        target_layer = model.layer4[-1]
+        target_layer = 'layer4'
     elif model_name.startswith('DenseNet'):
-        target_layer = model.features.denseblock4.denselayer16
+        target_layer = 'features.denseblock4'
     else:
         st.error("Modelo não suportado para Grad-CAM.")
         return
@@ -677,31 +596,19 @@ def visualize_activations(model, image, class_names, model_name, segmentation_mo
     # Habilitar gradientes explicitamente
     with torch.set_grad_enabled(True):
         out = model(input_tensor)  # Faz a previsão
-        _, pred = torch.max(out, 1)  # Obtém a classe predita
+        probabilities = torch.nn.functional.softmax(out, dim=1)
+        confidence, pred = torch.max(probabilities, 1)  # Obtém a classe predita
         pred_class = pred.item()
 
     # Gerar o mapa de ativação
     activation_map = cam_extractor(pred_class, out)
 
-    # Obter o mapa de ativação da primeira imagem no lote
-    activation_map = activation_map[0].cpu().numpy()
-
-    # Redimensionar o mapa de ativação para coincidir com o tamanho da imagem original
-    activation_map_resized = cv2.resize(activation_map, (image.size[0], image.size[1]))
-
-    # Normalizar o mapa de ativação para o intervalo [0, 1]
-    activation_map_resized = (activation_map_resized - activation_map_resized.min()) / (activation_map_resized.max() - activation_map_resized.min())
+    # Converter o mapa de ativação para PIL Image
+    activation_map = activation_map[0]
+    result = overlay_mask(to_pil_image(input_tensor.squeeze().cpu()), to_pil_image(activation_map.squeeze(), mode='F'), alpha=0.5)
 
     # Converter a imagem para array NumPy
     image_np = np.array(image)
-
-    # Converter o mapa de ativação em uma imagem RGB
-    heatmap = cv2.applyColorMap(np.uint8(255 * activation_map_resized), cv2.COLORMAP_JET)
-    heatmap = cv2.cvtColor(heatmap, cv2.COLOR_BGR2RGB)
-
-    # Sobrepor o mapa de ativação na imagem original
-    superimposed_img = heatmap * 0.4 + image_np * 0.6
-    superimposed_img = np.uint8(superimposed_img)
 
     if segmentation and segmentation_model is not None:
         # Aplicar o modelo de segmentação
@@ -723,7 +630,7 @@ def visualize_activations(model, image, class_names, model_name, segmentation_mo
         ax[0].axis('off')
 
         # Imagem com Grad-CAM
-        ax[1].imshow(superimposed_img)
+        ax[1].imshow(result)
         ax[1].set_title('Grad-CAM')
         ax[1].axis('off')
 
@@ -745,7 +652,7 @@ def visualize_activations(model, image, class_names, model_name, segmentation_mo
         ax[0].axis('off')
 
         # Imagem com Grad-CAM
-        ax[1].imshow(superimposed_img)
+        ax[1].imshow(result)
         ax[1].set_title('Grad-CAM')
         ax[1].axis('off')
 
@@ -753,7 +660,6 @@ def visualize_activations(model, image, class_names, model_name, segmentation_mo
         st.pyplot(fig)
 
 def main():
-
     # Definir o caminho do ícone
     icon_path = "logo.png"  # Verifique se o arquivo logo.png está no diretório correto
 
@@ -840,6 +746,7 @@ def main():
                     state_dict = torch.load(model_file_eval, map_location=device)
                     model_eval.load_state_dict(state_dict)
                     st.session_state['model'] = model_eval
+                    st.session_state['model_name'] = model_name_eval  # Armazena o nome do modelo
                     st.success("Modelo carregado com sucesso!")
                 except Exception as e:
                     st.error(f"Erro ao carregar o modelo: {e}")
@@ -858,7 +765,7 @@ def main():
         else:
             model_eval = st.session_state['model']
             classes_eval = st.session_state['classes']
-            model_name_eval = model_name  # Usar o mesmo modelo selecionado anteriormente
+            model_name_eval = st.session_state.get('model_name', 'ResNet18')  # Usa o nome do modelo armazenado
 
         eval_image_file = st.file_uploader("Faça upload da imagem para avaliação", type=["png", "jpg", "jpeg", "bmp", "gif"], key="eval_image_file")
         if eval_image_file is not None:
@@ -882,7 +789,8 @@ def main():
                     segmentation = st.checkbox("Visualizar Segmentação", value=True, key="segmentation_checkbox")
 
                 # Visualizar ativações e segmentação
-                visualize_activations(st.session_state['model'], eval_image, st.session_state['classes'], model_name, segmentation_model=segmentation_model, segmentation=segmentation)
+                model_name_for_visualization = st.session_state.get('model_name', 'ResNet18')
+                visualize_activations(st.session_state['model'], eval_image, st.session_state['classes'], model_name_for_visualization, segmentation_model=segmentation_model, segmentation=segmentation)
             else:
                 st.error("Modelo ou classes não carregados. Por favor, carregue um modelo ou treine um novo modelo.")
 
@@ -940,6 +848,7 @@ def main():
                 state_dict = torch.load(model_file, map_location=device)
                 model.load_state_dict(state_dict)
                 st.session_state['model'] = model
+                st.session_state['model_name'] = model_name  # Armazena o nome do modelo
                 st.success("Modelo carregado com sucesso!")
             except Exception as e:
                 st.error(f"Erro ao carregar o modelo: {e}")
@@ -980,6 +889,7 @@ def main():
             model, classes = model_data
             st.session_state['model'] = model
             st.session_state['classes'] = classes
+            st.session_state['model_name'] = model_name  # Armazena o nome do modelo
             st.success("Treinamento concluído!")
 
             # Opção para baixar o modelo treinado

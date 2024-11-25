@@ -781,6 +781,43 @@ def main():
     st.write("Este aplicativo permite treinar um modelo de classificação de imagens, aplicar algoritmos de clustering para análise comparativa e realizar segmentação de objetos.")
     st.write("As etapas são cuidadosamente documentadas para auxiliar na reprodução e análise científica.")
 
+    # Inicializar segmentation_model
+    segmentation_model = None
+
+    # Opções para o modelo de segmentação
+    st.subheader("Opções para o Modelo de Segmentação")
+    segmentation_option = st.selectbox("Deseja utilizar um modelo de segmentação?", ["Não", "Utilizar modelo pré-treinado", "Treinar novo modelo de segmentação"])
+    if segmentation_option == "Utilizar modelo pré-treinado":
+        segmentation_model = get_segmentation_model(num_classes=21)  # 21 classes do PASCAL VOC
+        st.write("Modelo de segmentação pré-treinado carregado.")
+    elif segmentation_option == "Treinar novo modelo de segmentação":
+        st.write("Treinamento do modelo de segmentação com seu próprio conjunto de dados.")
+        # Upload do conjunto de dados de segmentação
+        segmentation_zip = st.file_uploader("Faça upload de um arquivo ZIP contendo as imagens e máscaras de segmentação", type=["zip"])
+        if segmentation_zip is not None:
+            temp_seg_dir = tempfile.mkdtemp()
+            zip_path = os.path.join(temp_seg_dir, "segmentation.zip")
+            with open(zip_path, "wb") as f:
+                f.write(segmentation_zip.read())
+            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                zip_ref.extractall(temp_seg_dir)
+
+            # Espera-se que as imagens estejam em 'images/' e as máscaras em 'masks/' dentro do ZIP
+            images_dir = os.path.join(temp_seg_dir, 'images')
+            masks_dir = os.path.join(temp_seg_dir, 'masks')
+
+            if os.path.exists(images_dir) and os.path.exists(masks_dir):
+                # Treinar o modelo de segmentação
+                st.write("Iniciando o treinamento do modelo de segmentação...")
+                segmentation_model = train_segmentation_model(images_dir, masks_dir)
+                st.success("Treinamento do modelo de segmentação concluído!")
+            else:
+                st.error("Estrutura de diretórios inválida no arquivo ZIP. Certifique-se de que as imagens estão em 'images/' e as máscaras em 'masks/'.")
+        else:
+            st.error("Por favor, faça upload do conjunto de dados de segmentação.")
+    else:
+        segmentation_model = None
+
     # Barra Lateral de Configurações
     st.sidebar.title("Configurações do Treinamento")
     num_classes = st.sidebar.number_input("Número de Classes:", min_value=2, step=1)
@@ -851,40 +888,6 @@ def main():
         else:
             st.warning("Por favor, forneça o modelo e o número de classes.")
 
-        # Opções para o modelo de segmentação
-        st.subheader("Opções para o Modelo de Segmentação")
-        segmentation_option = st.selectbox("Deseja utilizar um modelo de segmentação?", ["Não", "Utilizar modelo pré-treinado", "Treinar novo modelo de segmentação"])
-        if segmentation_option == "Utilizar modelo pré-treinado":
-            segmentation_model = get_segmentation_model(num_classes=21)  # 21 classes do PASCAL VOC
-            st.write("Modelo de segmentação pré-treinado carregado.")
-        elif segmentation_option == "Treinar novo modelo de segmentação":
-            st.write("Treinamento do modelo de segmentação com seu próprio conjunto de dados.")
-            # Upload do conjunto de dados de segmentação
-            segmentation_zip = st.file_uploader("Faça upload de um arquivo ZIP contendo as imagens e máscaras de segmentação", type=["zip"])
-            if segmentation_zip is not None:
-                temp_seg_dir = tempfile.mkdtemp()
-                zip_path = os.path.join(temp_seg_dir, "segmentation.zip")
-                with open(zip_path, "wb") as f:
-                    f.write(segmentation_zip.read())
-                with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                    zip_ref.extractall(temp_seg_dir)
-
-                # Espera-se que as imagens estejam em 'images/' e as máscaras em 'masks/' dentro do ZIP
-                images_dir = os.path.join(temp_seg_dir, 'images')
-                masks_dir = os.path.join(temp_seg_dir, 'masks')
-
-                if os.path.exists(images_dir) and os.path.exists(masks_dir):
-                    # Treinar o modelo de segmentação
-                    st.write("Iniciando o treinamento do modelo de segmentação...")
-                    segmentation_model = train_segmentation_model(images_dir, masks_dir)
-                    st.success("Treinamento do modelo de segmentação concluído!")
-                else:
-                    st.error("Estrutura de diretórios inválida no arquivo ZIP. Certifique-se de que as imagens estão em 'images/' e as máscaras em 'masks/'.")
-            else:
-                st.error("Por favor, faça upload do conjunto de dados de segmentação.")
-        else:
-            segmentation_model = None
-
     else:
         # Upload do arquivo ZIP
         zip_file = st.file_uploader("Upload do arquivo ZIP com as imagens", type=["zip"])
@@ -933,38 +936,8 @@ def main():
             # Limpar o diretório temporário
             shutil.rmtree(temp_dir)
 
-            # Opções para o modelo de segmentação
-            st.subheader("Opções para o Modelo de Segmentação")
-            segmentation_option = st.selectbox("Deseja treinar um modelo de segmentação?", ["Não", "Sim"])
-            if segmentation_option == "Sim":
-                st.write("Treinamento do modelo de segmentação com seu próprio conjunto de dados.")
-                # Upload do conjunto de dados de segmentação
-                segmentation_zip = st.file_uploader("Faça upload de um arquivo ZIP contendo as imagens e máscaras de segmentação", type=["zip"])
-                if segmentation_zip is not None:
-                    temp_seg_dir = tempfile.mkdtemp()
-                    zip_path = os.path.join(temp_seg_dir, "segmentation.zip")
-                    with open(zip_path, "wb") as f:
-                        f.write(segmentation_zip.read())
-                    with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                        zip_ref.extractall(temp_seg_dir)
-
-                    # Espera-se que as imagens estejam em 'images/' e as máscaras em 'masks/' dentro do ZIP
-                    images_dir = os.path.join(temp_seg_dir, 'images')
-                    masks_dir = os.path.join(temp_seg_dir, 'masks')
-
-                    if os.path.exists(images_dir) and os.path.exists(masks_dir):
-                        # Treinar o modelo de segmentação
-                        st.write("Iniciando o treinamento do modelo de segmentação...")
-                        segmentation_model = train_segmentation_model(images_dir, masks_dir)
-                        st.success("Treinamento do modelo de segmentação concluído!")
-                    else:
-                        st.error("Estrutura de diretórios inválida no arquivo ZIP. Certifique-se de que as imagens estão em 'images/' e as máscaras em 'masks/'.")
-                else:
-                    st.error("Por favor, faça upload do conjunto de dados de segmentação.")
-            else:
-                segmentation_model = None
         else:
-            segmentation_model = None
+            st.warning("Por favor, forneça os dados e as configurações corretas.")
 
     # Avaliação de uma imagem individual
     st.header("Avaliação de Imagem")
@@ -988,7 +961,7 @@ def main():
 
                 # Opção para visualizar segmentação
                 segmentation = False
-                if 'segmentation_model' in locals() and segmentation_model is not None:
+                if segmentation_model is not None:
                     segmentation = st.checkbox("Visualizar Segmentação", value=True)
 
                 # Visualizar ativações e segmentação

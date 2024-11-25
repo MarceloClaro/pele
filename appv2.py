@@ -786,16 +786,14 @@ def main():
 
     # Opções para o modelo de segmentação
     st.subheader("Opções para o Modelo de Segmentação")
-    segmentation_option = st.selectbox("Deseja utilizar um modelo de segmentação?", ["Não", "Utilizar modelo pré-treinado", "Treinar novo modelo de segmentação"], key="segmentation_option")
+    segmentation_option = st.selectbox("Deseja utilizar um modelo de segmentação?", ["Não", "Utilizar modelo pré-treinado", "Treinar novo modelo de segmentação"])
     if segmentation_option == "Utilizar modelo pré-treinado":
-        num_classes_segmentation = st.number_input("Número de Classes para Segmentação (Modelo Pré-treinado):", min_value=1, step=1, value=21, key="num_classes_segmentation_pretrained")
-        segmentation_model = get_segmentation_model(num_classes=num_classes_segmentation)  # Número de classes definido pelo usuário
+        segmentation_model = get_segmentation_model(num_classes=21)  # 21 classes do PASCAL VOC
         st.write("Modelo de segmentação pré-treinado carregado.")
     elif segmentation_option == "Treinar novo modelo de segmentação":
         st.write("Treinamento do modelo de segmentação com seu próprio conjunto de dados.")
-        num_classes_segmentation = st.number_input("Número de Classes para Segmentação:", min_value=1, step=1, key="num_classes_segmentation")
         # Upload do conjunto de dados de segmentação
-        segmentation_zip = st.file_uploader("Faça upload de um arquivo ZIP contendo as imagens e máscaras de segmentação", type=["zip"], key="segmentation_zip")
+        segmentation_zip = st.file_uploader("Faça upload de um arquivo ZIP contendo as imagens e máscaras de segmentação", type=["zip"])
         if segmentation_zip is not None:
             temp_seg_dir = tempfile.mkdtemp()
             zip_path = os.path.join(temp_seg_dir, "segmentation.zip")
@@ -811,7 +809,7 @@ def main():
             if os.path.exists(images_dir) and os.path.exists(masks_dir):
                 # Treinar o modelo de segmentação
                 st.write("Iniciando o treinamento do modelo de segmentação...")
-                segmentation_model = train_segmentation_model(images_dir, masks_dir, num_classes_segmentation)
+                segmentation_model = train_segmentation_model(images_dir, masks_dir)
                 st.success("Treinamento do modelo de segmentação concluído!")
             else:
                 st.error("Estrutura de diretórios inválida no arquivo ZIP. Certifique-se de que as imagens estão em 'images/' e as máscaras em 'masks/'.")
@@ -822,45 +820,44 @@ def main():
 
     # Avaliação de uma imagem individual (movida para antes do treinamento)
     st.header("Avaliação de Imagem")
-    evaluate = st.radio("Deseja avaliar uma imagem?", ("Sim", "Não"), key="evaluate_option")
+    evaluate = st.radio("Deseja avaliar uma imagem?", ("Sim", "Não"))
     if evaluate == "Sim":
         # Verificar se o modelo já foi carregado ou treinado
         if 'model' not in st.session_state or 'classes' not in st.session_state:
             st.warning("Nenhum modelo carregado ou treinado. Por favor, carregue um modelo existente ou treine um novo modelo.")
             # Opção para carregar um modelo existente
-            model_file_eval = st.file_uploader("Faça upload do arquivo do modelo (.pt ou .pth)", type=["pt", "pth"], key="model_file_uploader_eval")
-            if model_file_eval is not None:
-                num_classes_eval = st.number_input("Número de Classes:", min_value=2, step=1, key="num_classes_eval")
-                model_name_eval = st.selectbox("Modelo Pré-treinado:", options=['ResNet18', 'ResNet50', 'DenseNet121'], key="model_name_eval")
-                model_eval = get_model(model_name_eval, num_classes_eval, dropout_p=0.5, fine_tune=False)
-                if model_eval is None:
+            model_file = st.file_uploader("Faça upload do arquivo do modelo (.pt ou .pth)", type=["pt", "pth"])
+            if model_file is not None:
+                num_classes = st.number_input("Número de Classes:", min_value=2, step=1)
+                model_name = st.selectbox("Modelo Pré-treinado:", options=['ResNet18', 'ResNet50', 'DenseNet121'])
+                model = get_model(model_name, num_classes, dropout_p=0.5, fine_tune=False)
+                if model is None:
                     st.error("Erro ao carregar o modelo.")
                     return
                 try:
-                    state_dict = torch.load(model_file_eval, map_location=device)
-                    model_eval.load_state_dict(state_dict)
-                    st.session_state['model'] = model_eval
+                    state_dict = torch.load(model_file, map_location=device)
+                    model.load_state_dict(state_dict)
+                    st.session_state['model'] = model
                     st.success("Modelo carregado com sucesso!")
                 except Exception as e:
                     st.error(f"Erro ao carregar o modelo: {e}")
                     return
 
                 # Carregar as classes
-                classes_file_eval = st.file_uploader("Faça upload do arquivo com as classes (classes.txt)", type=["txt"], key="classes_file_uploader_eval")
-                if classes_file_eval is not None:
-                    classes_eval = classes_file_eval.read().decode("utf-8").splitlines()
-                    st.session_state['classes'] = classes_eval
-                    st.write(f"Classes carregadas: {classes_eval}")
+                classes_file = st.file_uploader("Faça upload do arquivo com as classes (classes.txt)", type=["txt"])
+                if classes_file is not None:
+                    classes = classes_file.read().decode("utf-8").splitlines()
+                    st.session_state['classes'] = classes
+                    st.write(f"Classes carregadas: {classes}")
                 else:
                     st.error("Por favor, forneça o arquivo com as classes.")
             else:
                 st.info("Aguardando o upload do modelo e das classes.")
         else:
-            model_eval = st.session_state['model']
-            classes_eval = st.session_state['classes']
-            model_name_eval = model_name  # Usar o mesmo modelo selecionado anteriormente
+            model = st.session_state['model']
+            classes = st.session_state['classes']
 
-        eval_image_file = st.file_uploader("Faça upload da imagem para avaliação", type=["png", "jpg", "jpeg", "bmp", "gif"], key="eval_image_file")
+        eval_image_file = st.file_uploader("Faça upload da imagem para avaliação", type=["png", "jpg", "jpeg", "bmp", "gif"])
         if eval_image_file is not None:
             eval_image_file.seek(0)
             try:
@@ -869,36 +866,36 @@ def main():
                 st.error(f"Erro ao abrir a imagem: {e}")
                 return
 
-            st.image(eval_image, caption='Imagem para avaliação', use_column_width=True)
+            st.image(eval_image, caption='Imagem para avaliação', use_container_width=True)
 
-            if 'model' in st.session_state and 'classes' in st.session_state:
-                class_name, confidence = evaluate_image(st.session_state['model'], eval_image, st.session_state['classes'])
+            if 'model' in locals() and 'classes' in locals():
+                class_name, confidence = evaluate_image(model, eval_image, classes)
                 st.write(f"**Classe Predita:** {class_name}")
                 st.write(f"**Confiança:** {confidence:.4f}")
 
                 # Opção para visualizar segmentação
                 segmentation = False
                 if segmentation_model is not None:
-                    segmentation = st.checkbox("Visualizar Segmentação", value=True, key="segmentation_checkbox")
+                    segmentation = st.checkbox("Visualizar Segmentação", value=True)
 
                 # Visualizar ativações e segmentação
-                visualize_activations(st.session_state['model'], eval_image, st.session_state['classes'], model_name, segmentation_model=segmentation_model, segmentation=segmentation)
+                visualize_activations(model, eval_image, classes, model_name, segmentation_model=segmentation_model, segmentation=segmentation)
             else:
                 st.error("Modelo ou classes não carregados. Por favor, carregue um modelo ou treine um novo modelo.")
 
     # Barra Lateral de Configurações
     st.sidebar.title("Configurações do Treinamento")
-    num_classes = st.sidebar.number_input("Número de Classes:", min_value=2, step=1, key="num_classes")
-    model_name = st.sidebar.selectbox("Modelo Pré-treinado:", options=['ResNet18', 'ResNet50', 'DenseNet121'], key="model_name")
-    fine_tune = st.sidebar.checkbox("Fine-Tuning Completo", value=False, key="fine_tune")
-    epochs = st.sidebar.slider("Número de Épocas:", min_value=1, max_value=500, value=200, step=1, key="epochs")
-    learning_rate = st.sidebar.select_slider("Taxa de Aprendizagem:", options=[0.1, 0.01, 0.001, 0.0001], value=0.0001, key="learning_rate")
-    batch_size = st.sidebar.selectbox("Tamanho de Lote:", options=[4, 8, 16, 32, 64], index=2, key="batch_size")
-    train_split = st.sidebar.slider("Percentual de Treinamento:", min_value=0.5, max_value=0.9, value=0.7, step=0.05, key="train_split")
-    valid_split = st.sidebar.slider("Percentual de Validação:", min_value=0.05, max_value=0.4, value=0.15, step=0.05, key="valid_split")
-    l2_lambda = st.sidebar.number_input("L2 Regularization (Weight Decay):", min_value=0.0, max_value=0.1, value=0.01, step=0.01, key="l2_lambda")
-    patience = st.sidebar.number_input("Paciência para Early Stopping:", min_value=1, max_value=10, value=3, step=1, key="patience")
-    use_weighted_loss = st.sidebar.checkbox("Usar Perda Ponderada para Classes Desbalanceadas", value=False, key="use_weighted_loss")
+    num_classes = st.sidebar.number_input("Número de Classes:", min_value=2, step=1)
+    model_name = st.sidebar.selectbox("Modelo Pré-treinado:", options=['ResNet18', 'ResNet50', 'DenseNet121'])
+    fine_tune = st.sidebar.checkbox("Fine-Tuning Completo", value=False)
+    epochs = st.sidebar.slider("Número de Épocas:", min_value=1, max_value=500, value=200, step=1)
+    learning_rate = st.sidebar.select_slider("Taxa de Aprendizagem:", options=[0.1, 0.01, 0.001, 0.0001], value=0.0001)
+    batch_size = st.sidebar.selectbox("Tamanho de Lote:", options=[4, 8, 16, 32, 64], index=2)
+    train_split = st.sidebar.slider("Percentual de Treinamento:", min_value=0.5, max_value=0.9, value=0.7, step=0.05)
+    valid_split = st.sidebar.slider("Percentual de Validação:", min_value=0.05, max_value=0.4, value=0.15, step=0.05)
+    l2_lambda = st.sidebar.number_input("L2 Regularization (Weight Decay):", min_value=0.0, max_value=0.1, value=0.01, step=0.01)
+    patience = st.sidebar.number_input("Paciência para Early Stopping:", min_value=1, max_value=10, value=3, step=1)
+    use_weighted_loss = st.sidebar.checkbox("Usar Perda Ponderada para Classes Desbalanceadas", value=False)
     st.sidebar.image("eu.ico", width=80)
     st.sidebar.write("""
     Produzido pelo:
@@ -924,10 +921,10 @@ def main():
     # Opções de carregamento do modelo
     st.header("Opções de Carregamento do Modelo")
 
-    model_option = st.selectbox("Escolha uma opção:", ["Treinar um novo modelo", "Carregar um modelo existente"], key="model_option_main")
+    model_option = st.selectbox("Escolha uma opção:", ["Treinar um novo modelo", "Carregar um modelo existente"])
     if model_option == "Carregar um modelo existente":
         # Upload do modelo pré-treinado
-        model_file = st.file_uploader("Faça upload do arquivo do modelo (.pt ou .pth)", type=["pt", "pth"], key="model_file_uploader_main")
+        model_file = st.file_uploader("Faça upload do arquivo do modelo (.pt ou .pth)", type=["pt", "pth"])
         if model_file is not None and num_classes > 0:
             # Carregar o modelo
             model = get_model(model_name, num_classes, dropout_p=0.5, fine_tune=False)
@@ -946,7 +943,7 @@ def main():
                 return
 
             # Carregar as classes
-            classes_file = st.file_uploader("Faça upload do arquivo com as classes (classes.txt)", type=["txt"], key="classes_file_uploader_main")
+            classes_file = st.file_uploader("Faça upload do arquivo com as classes (classes.txt)", type=["txt"])
             if classes_file is not None:
                 classes = classes_file.read().decode("utf-8").splitlines()
                 st.session_state['classes'] = classes
@@ -959,7 +956,8 @@ def main():
 
     elif model_option == "Treinar um novo modelo":
         # Upload do arquivo ZIP
-        zip_file = st.file_uploader("Upload do arquivo ZIP com as imagens", type=["zip"], key="zip_file_uploader")
+        zip_file = st.file_uploader("Upload do arquivo ZIP com as imagens", type=["zip"])
+
         if zip_file is not None and num_classes > 0 and train_split + valid_split <= 0.95:
             temp_dir = tempfile.mkdtemp()
             zip_path = os.path.join(temp_dir, "uploaded.zip")
@@ -991,8 +989,7 @@ def main():
                 label="Download do Modelo",
                 data=buffer,
                 file_name="modelo_treinado.pth",
-                mime="application/octet-stream",
-                key="download_model_button"
+                mime="application/octet-stream"
             )
 
             # Salvar as classes em um arquivo
@@ -1001,8 +998,7 @@ def main():
                 label="Download das Classes",
                 data=classes_data,
                 file_name="classes.txt",
-                mime="text/plain",
-                key="download_classes_button"
+                mime="text/plain"
             )
 
             # Limpar o diretório temporário
@@ -1017,11 +1013,12 @@ def main():
     # Encerrar a aplicação
     st.write("Obrigado por utilizar o aplicativo!")
 
-def train_segmentation_model(images_dir, masks_dir, num_classes):
+def train_segmentation_model(images_dir, masks_dir):
     """
     Treina o modelo de segmentação com o conjunto de dados fornecido pelo usuário.
     """
     set_seed(42)
+    num_classes = 2  # Ajuste conforme o número de classes em seu conjunto de dados
     batch_size = 4
     num_epochs = 25
     learning_rate = 0.001

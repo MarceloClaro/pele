@@ -11,7 +11,10 @@ from PIL import Image
 import torch
 from torch import nn, optim
 from torch.utils.data import DataLoader, random_split
-from torchvision import transforms, models, datasets
+from torchvision import transforms, datasets
+from torchvision.models import resnet18, resnet50, densenet121
+from torchvision.models import ResNet18_Weights, ResNet50_Weights, DenseNet121_Weights
+from torchvision.models.segmentation import fcn_resnet50, FCN_ResNet50_Weights
 from sklearn.cluster import AgglomerativeClustering, KMeans
 from sklearn.metrics import (adjusted_rand_score, normalized_mutual_info_score,
                              confusion_matrix, classification_report,
@@ -23,9 +26,8 @@ import gc
 import logging
 import base64
 from torchcam.methods import SmoothGradCAMpp
-from torchvision.transforms.functional import normalize, resize, to_pil_image
 import cv2
-import io  # Importação adicional
+import io
 
 # Definir o dispositivo (CPU ou GPU)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -68,7 +70,7 @@ test_transforms = transforms.Compose([
     transforms.ToTensor(),
 ])
 
-# Dataset personalizado
+# Dataset personalizado para classificação
 class CustomDataset(torch.utils.data.Dataset):
     def __init__(self, dataset, transform=None):
         self.dataset = dataset
@@ -82,6 +84,34 @@ class CustomDataset(torch.utils.data.Dataset):
         if self.transform:
             image = self.transform(image)
         return image, label
+
+# Dataset personalizado para segmentação
+class SegmentationDataset(torch.utils.data.Dataset):
+    def __init__(self, images_dir, masks_dir, transform=None, target_transform=None):
+        self.images_dir = images_dir
+        self.masks_dir = masks_dir
+        self.transform = transform
+        self.target_transform = target_transform
+        self.images = sorted(os.listdir(images_dir))
+        self.masks = sorted(os.listdir(masks_dir))
+
+    def __len__(self):
+        return len(self.images)
+
+    def __getitem__(self, idx):
+        img_path = os.path.join(self.images_dir, self.images[idx])
+        mask_path = os.path.join(self.masks_dir, self.masks[idx])
+
+        image = Image.open(img_path).convert("RGB")
+        mask = Image.open(mask_path)
+
+        if self.transform:
+            image = self.transform(image)
+
+        if self.target_transform:
+            mask = self.target_transform(mask)
+
+        return image, mask
 
 def seed_worker(worker_id):
     """
@@ -119,8 +149,9 @@ def plot_class_distribution(dataset, classes):
     # Plotar o gráfico com as contagens
     fig, ax = plt.subplots(figsize=(10, 6))
     sns.countplot(x=labels, ax=ax, palette="Set2")
-    
-    # Adicionar os nomes das classes no eixo X
+
+    # Definir ticks e labels
+    ax.set_xticks(range(len(classes)))
     ax.set_xticklabels(classes, rotation=45)
     
     # Adicionar as contagens acima das barras
@@ -135,14 +166,17 @@ def plot_class_distribution(dataset, classes):
 
 def get_model(model_name, num_classes, dropout_p=0.5, fine_tune=False):
     """
-    Retorna o modelo pré-treinado selecionado.
+    Retorna o modelo pré-treinado selecionado para classificação.
     """
     if model_name == 'ResNet18':
-        model = models.resnet18(pretrained=True)
+        weights = ResNet18_Weights.DEFAULT
+        model = resnet18(weights=weights)
     elif model_name == 'ResNet50':
-        model = models.resnet50(pretrained=True)
+        weights = ResNet50_Weights.DEFAULT
+        model = resnet50(weights=weights)
     elif model_name == 'DenseNet121':
-        model = models.densenet121(pretrained=True)
+        weights = DenseNet121_Weights.DEFAULT
+        model = densenet121(weights=weights)
     else:
         st.error("Modelo não suportado.")
         return None
@@ -170,9 +204,25 @@ def get_model(model_name, num_classes, dropout_p=0.5, fine_tune=False):
     model = model.to(device)
     return model
 
+def get_segmentation_model(num_classes, fine_tune=False):
+    """
+    Retorna o modelo pré-treinado para segmentação.
+    """
+    weights = FCN_ResNet50_Weights.DEFAULT
+    model = fcn_resnet50(weights=weights)
+    if not fine_tune:
+        for param in model.parameters():
+            param.requires_grad = False
+
+    # Ajustar a última camada para o número de classes do usuário
+    model.classifier[4] = nn.Conv2d(512, num_classes, kernel_size=1)
+    model.aux_classifier[4] = nn.Conv2d(256, num_classes, kernel_size=1)
+    model = model.to(device)
+    return model
+
 def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_rate, batch_size, train_split, valid_split, use_weighted_loss, l2_lambda, patience):
     """
-    Função principal para treinamento do modelo.
+    Função principal para treinamento do modelo de classificação.
     """
     set_seed(42)
 
@@ -240,6 +290,11 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
     best_valid_loss = float('inf')
     epochs_no_improve = 0
 
+    # Placeholders para gráficos dinâmicos
+    placeholder = st.empty()
+    progress_bar = st.progress(0)
+    epoch_text = st.empty()
+
     # Treinamento
     for epoch in range(epochs):
         set_seed(42 + epoch)
@@ -293,9 +348,34 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
         valid_losses.append(valid_epoch_loss)
         valid_accuracies.append(valid_epoch_acc.item())
 
-        st.write(f'**Época {epoch+1}/{epochs}**')
-        st.write(f'Perda de Treino: {epoch_loss:.4f} | Acurácia de Treino: {epoch_acc:.4f}')
-        st.write(f'Perda de Validação: {valid_epoch_loss:.4f} | Acurácia de Validação: {valid_epoch_acc:.4f}')
+        # Atualizar gráficos dinamicamente
+        with placeholder.container():
+            fig, ax = plt.subplots(1, 2, figsize=(14, 5))
+
+            epochs_range = range(1, epoch + 2)  # Ajustar o intervalo de épocas
+
+            # Gráfico de Perda
+            ax[0].plot(epochs_range, train_losses, label='Treino')
+            ax[0].plot(epochs_range, valid_losses, label='Validação')
+            ax[0].set_title('Perda por Época')
+            ax[0].set_xlabel('Épocas')
+            ax[0].set_ylabel('Perda')
+            ax[0].legend()
+
+            # Gráfico de Acurácia
+            ax[1].plot(epochs_range, train_accuracies, label='Treino')
+            ax[1].plot(epochs_range, valid_accuracies, label='Validação')
+            ax[1].set_title('Acurácia por Época')
+            ax[1].set_xlabel('Épocas')
+            ax[1].set_ylabel('Acurácia')
+            ax[1].legend()
+
+            st.pyplot(fig)
+
+        # Atualizar texto de progresso
+        progress = (epoch + 1) / epochs
+        progress_bar.progress(progress)
+        epoch_text.text(f'Época {epoch+1}/{epochs}')
 
         # Early Stopping
         if valid_epoch_loss < best_valid_loss:
@@ -312,7 +392,7 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
     # Carregar os melhores pesos do modelo
     model.load_state_dict(best_model_wts)
 
-    # Gráficos de Perda e Acurácia
+    # Gráficos de Perda e Acurácia finais
     plot_metrics(epochs, train_losses, valid_losses, train_accuracies, valid_accuracies)
 
     # Avaliação Final no Conjunto de Teste
@@ -542,17 +622,38 @@ def evaluate_image(model, image, classes):
         class_name = classes[class_idx]
         return class_name, confidence.item()
 
-def visualize_activations(model, image, class_names):
+def label_to_color_image(label):
     """
-    Visualiza as ativações na imagem usando Grad-CAM.
+    Mapeia uma máscara de segmentação para uma imagem colorida.
+    """
+    colormap = create_pascal_label_colormap()
+    return colormap[label]
+
+def create_pascal_label_colormap():
+    """
+    Cria um mapa de cores para o conjunto de dados PASCAL VOC.
+    """
+    colormap = np.zeros((256, 3), dtype=int)
+    ind = np.arange(256, dtype=int)
+
+    for shift in reversed(range(8)):
+        for channel in range(3):
+            colormap[:, channel] |= ((ind >> channel) & 1) << shift
+        ind >>= 3
+
+    return colormap
+
+def visualize_activations(model, image, class_names, model_name, segmentation_model=None, segmentation=False):
+    """
+    Visualiza as ativações na imagem usando Grad-CAM e adiciona a segmentação de objetos.
     """
     model.eval()  # Coloca o modelo em modo de avaliação
     input_tensor = test_transforms(image).unsqueeze(0).to(device)
     
     # Verificar se o modelo é suportado
-    if isinstance(model, models.ResNet):
+    if model_name.startswith('ResNet'):
         target_layer = model.layer4[-1]
-    elif isinstance(model, models.DenseNet):
+    elif model_name.startswith('DenseNet'):
         target_layer = model.features.denseblock4.denselayer16
     else:
         st.error("Modelo não suportado para Grad-CAM.")
@@ -590,27 +691,60 @@ def visualize_activations(model, image, class_names):
     superimposed_img = heatmap * 0.4 + image_np * 0.6
     superimposed_img = np.uint8(superimposed_img)
     
-    # Exibir a imagem original e o mapa de ativação sobreposto
-    fig, ax = plt.subplots(1, 2, figsize=(10, 5))
-    
-    # Imagem original
-    ax[0].imshow(image_np)
-    ax[0].set_title('Imagem Original')
-    ax[0].axis('off')
-    
-    # Imagem com Grad-CAM
-    ax[1].imshow(superimposed_img)
-    ax[1].set_title('Grad-CAM')
-    ax[1].axis('off')
-    
-    # Exibir as imagens com o Streamlit
-    st.pyplot(fig)
+    if segmentation and segmentation_model is not None:
+        # Aplicar o modelo de segmentação
+        segmentation_model.eval()
+        with torch.no_grad():
+            segmentation_output = segmentation_model(input_tensor)['out']
+            segmentation_mask = torch.argmax(segmentation_output.squeeze(), dim=0).cpu().numpy()
+        
+        # Mapear o índice da classe para uma cor
+        segmentation_colored = label_to_color_image(segmentation_mask).astype(np.uint8)
+        segmentation_colored = cv2.resize(segmentation_colored, (image.size[0], image.size[1]))
+        
+        # Exibir as imagens: Imagem Original, Grad-CAM e Segmentação
+        fig, ax = plt.subplots(1, 3, figsize=(15, 5))
+        
+        # Imagem original
+        ax[0].imshow(image_np)
+        ax[0].set_title('Imagem Original')
+        ax[0].axis('off')
+        
+        # Imagem com Grad-CAM
+        ax[1].imshow(superimposed_img)
+        ax[1].set_title('Grad-CAM')
+        ax[1].axis('off')
+        
+        # Imagem com Segmentação
+        ax[2].imshow(image_np)
+        ax[2].imshow(segmentation_colored, alpha=0.6)
+        ax[2].set_title('Segmentação')
+        ax[2].axis('off')
+        
+        # Exibir as imagens com o Streamlit
+        st.pyplot(fig)
+    else:
+        # Exibir as imagens: Imagem Original e Grad-CAM
+        fig, ax = plt.subplots(1, 2, figsize=(10, 5))
+        
+        # Imagem original
+        ax[0].imshow(image_np)
+        ax[0].set_title('Imagem Original')
+        ax[0].axis('off')
+        
+        # Imagem com Grad-CAM
+        ax[1].imshow(superimposed_img)
+        ax[1].set_title('Grad-CAM')
+        ax[1].axis('off')
+        
+        # Exibir as imagens com o Streamlit
+        st.pyplot(fig)
 
 def main():
 
     # Definir o caminho do ícone
     icon_path = "logo.png"  # Verifique se o arquivo logo.png está no diretório correto
-    
+
     # Verificar se o arquivo de ícone existe antes de configurá-lo
     if os.path.exists(icon_path):
         st.set_page_config(page_title="Geomaker", page_icon=icon_path, layout="wide")
@@ -619,20 +753,21 @@ def main():
         # Se o ícone não for encontrado, carrega sem favicon
         st.set_page_config(page_title="Geomaker", layout="wide")
         logging.warning(f"Ícone {icon_path} não encontrado, carregando sem favicon.")
-    
+
     # Layout da página
     if os.path.exists('capa.png'):
-        st.image('capa.png', width=100, caption='Laboratório de Educação e Inteligência Artificial - Geomaker. "A melhor forma de prever o futuro é inventá-lo." - Alan Kay', use_column_width='always')
+        st.image('capa.png', width=100, caption='Laboratório de Educação e Inteligência Artificial - Geomaker. "A melhor forma de prever o futuro é inventá-lo." - Alan Kay', use_container_width=True)
     else:
         st.warning("Imagem 'capa.png' não encontrada.")
-    
+
     if os.path.exists("logo.png"):
         st.sidebar.image("logo.png", width=200)
     else:
         st.sidebar.text("Imagem do logotipo não encontrada.")
-    
-    st.title("Classificação por Imagens com Aprendizado Profundo")
-    st.write("Este aplicativo permite treinar um modelo de classificação de imagens e aplicar algoritmos de clustering para análise comparativa.")
+
+    st.title("Classificação e Segmentação de Imagens com Aprendizado Profundo")
+    st.write("Este aplicativo permite treinar um modelo de classificação de imagens, aplicar algoritmos de clustering para análise comparativa e realizar segmentação de objetos.")
+    st.write("As etapas são cuidadosamente documentadas para auxiliar na reprodução e análise científica.")
 
     # Barra Lateral de Configurações
     st.sidebar.title("Configurações do Treinamento")
@@ -701,6 +836,40 @@ def main():
             else:
                 st.error("Por favor, forneça o arquivo com as classes.")
 
+        # Opções para o modelo de segmentação
+        st.subheader("Opções para o Modelo de Segmentação")
+        segmentation_option = st.selectbox("Deseja utilizar um modelo de segmentação?", ["Não", "Utilizar modelo pré-treinado", "Treinar novo modelo de segmentação"])
+        if segmentation_option == "Utilizar modelo pré-treinado":
+            segmentation_model = get_segmentation_model(num_classes=21)  # 21 classes do PASCAL VOC
+            st.write("Modelo de segmentação pré-treinado carregado.")
+        elif segmentation_option == "Treinar novo modelo de segmentação":
+            st.write("Treinamento do modelo de segmentação com seu próprio conjunto de dados.")
+            # Upload do conjunto de dados de segmentação
+            segmentation_zip = st.file_uploader("Faça upload de um arquivo ZIP contendo as imagens e máscaras de segmentação", type=["zip"])
+            if segmentation_zip is not None:
+                temp_seg_dir = tempfile.mkdtemp()
+                zip_path = os.path.join(temp_seg_dir, "segmentation.zip")
+                with open(zip_path, "wb") as f:
+                    f.write(segmentation_zip.read())
+                with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                    zip_ref.extractall(temp_seg_dir)
+
+                # Espera-se que as imagens estejam em 'images/' e as máscaras em 'masks/' dentro do ZIP
+                images_dir = os.path.join(temp_seg_dir, 'images')
+                masks_dir = os.path.join(temp_seg_dir, 'masks')
+
+                if os.path.exists(images_dir) and os.path.exists(masks_dir):
+                    # Treinar o modelo de segmentação
+                    st.write("Iniciando o treinamento do modelo de segmentação...")
+                    segmentation_model = train_segmentation_model(images_dir, masks_dir)
+                    st.success("Treinamento do modelo de segmentação concluído!")
+                else:
+                    st.error("Estrutura de diretórios inválida no arquivo ZIP. Certifique-se de que as imagens estão em 'images/' e as máscaras em 'masks/'.")
+            else:
+                st.error("Por favor, faça upload do conjunto de dados de segmentação.")
+        else:
+            segmentation_model = None
+
     else:
         # Upload do arquivo ZIP
         zip_file = st.file_uploader("Upload do arquivo ZIP com as imagens", type=["zip"])
@@ -738,17 +907,49 @@ def main():
             )
 
             # Salvar as classes em um arquivo
-            classes_buffer = io.StringIO("\n".join(classes))
-            classes_buffer.seek(0)
+            classes_data = "\n".join(classes)
             st.download_button(
                 label="Download das Classes",
-                data=classes_buffer,
+                data=classes_data,
                 file_name="classes.txt",
                 mime="text/plain"
             )
 
             # Limpar o diretório temporário
             shutil.rmtree(temp_dir)
+
+            # Opções para o modelo de segmentação
+            st.subheader("Opções para o Modelo de Segmentação")
+            segmentation_option = st.selectbox("Deseja treinar um modelo de segmentação?", ["Não", "Sim"])
+            if segmentation_option == "Sim":
+                st.write("Treinamento do modelo de segmentação com seu próprio conjunto de dados.")
+                # Upload do conjunto de dados de segmentação
+                segmentation_zip = st.file_uploader("Faça upload de um arquivo ZIP contendo as imagens e máscaras de segmentação", type=["zip"])
+                if segmentation_zip is not None:
+                    temp_seg_dir = tempfile.mkdtemp()
+                    zip_path = os.path.join(temp_seg_dir, "segmentation.zip")
+                    with open(zip_path, "wb") as f:
+                        f.write(segmentation_zip.read())
+                    with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                        zip_ref.extractall(temp_seg_dir)
+
+                    # Espera-se que as imagens estejam em 'images/' e as máscaras em 'masks/' dentro do ZIP
+                    images_dir = os.path.join(temp_seg_dir, 'images')
+                    masks_dir = os.path.join(temp_seg_dir, 'masks')
+
+                    if os.path.exists(images_dir) and os.path.exists(masks_dir):
+                        # Treinar o modelo de segmentação
+                        st.write("Iniciando o treinamento do modelo de segmentação...")
+                        segmentation_model = train_segmentation_model(images_dir, masks_dir)
+                        st.success("Treinamento do modelo de segmentação concluído!")
+                    else:
+                        st.error("Estrutura de diretórios inválida no arquivo ZIP. Certifique-se de que as imagens estão em 'images/' e as máscaras em 'masks/'.")
+                else:
+                    st.error("Por favor, faça upload do conjunto de dados de segmentação.")
+            else:
+                segmentation_model = None
+        else:
+            segmentation_model = None
 
     # Avaliação de uma imagem individual
     st.header("Avaliação de Imagem")
@@ -763,17 +964,104 @@ def main():
                 st.error(f"Erro ao abrir a imagem: {e}")
                 return
 
-            st.image(eval_image, caption='Imagem para avaliação', use_column_width=True)
+            st.image(eval_image, caption='Imagem para avaliação', use_container_width=True)
 
             if 'model' in locals() and 'classes' in locals():
                 class_name, confidence = evaluate_image(model, eval_image, classes)
                 st.write(f"**Classe Predita:** {class_name}")
                 st.write(f"**Confiança:** {confidence:.4f}")
 
-                # Visualizar ativações
-                visualize_activations(model, eval_image, classes)
+                # Opção para visualizar segmentação
+                segmentation = False
+                if 'segmentation_model' in locals() and segmentation_model is not None:
+                    segmentation = st.checkbox("Visualizar Segmentação", value=True)
+
+                # Visualizar ativações e segmentação
+                visualize_activations(model, eval_image, classes, model_name, segmentation_model=segmentation_model, segmentation=segmentation)
             else:
                 st.error("Modelo ou classes não carregados. Por favor, treine um modelo ou carregue um modelo existente.")
+
+    st.write("### Documentação dos Procedimentos")
+    st.write("Todas as etapas foram cuidadosamente registradas. Utilize esta documentação para reproduzir o experimento e analisar os resultados.")
+
+    # Encerrar a aplicação
+    st.write("Obrigado por utilizar o aplicativo!")
+
+def train_segmentation_model(images_dir, masks_dir):
+    """
+    Treina o modelo de segmentação com o conjunto de dados fornecido pelo usuário.
+    """
+    set_seed(42)
+    num_classes = 2  # Ajuste conforme o número de classes em seu conjunto de dados
+    batch_size = 4
+    num_epochs = 25
+    learning_rate = 0.001
+
+    # Transformações
+    input_transforms = transforms.Compose([
+        transforms.Resize((256, 256)),
+        transforms.ToTensor(),
+    ])
+    target_transforms = transforms.Compose([
+        transforms.Resize((256, 256)),
+        transforms.ToTensor(),
+    ])
+
+    # Dataset
+    dataset = SegmentationDataset(images_dir, masks_dir, transform=input_transforms, target_transform=target_transforms)
+
+    # Dividir em treino e validação
+    train_size = int(0.8 * len(dataset))
+    val_size = len(dataset) - train_size
+    train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
+
+    # Dataloaders
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, worker_init_fn=seed_worker)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, worker_init_fn=seed_worker)
+
+    # Modelo
+    model = get_segmentation_model(num_classes=num_classes, fine_tune=True)
+
+    # Otimizador e função de perda
+    criterion = nn.CrossEntropyLoss()
+    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+
+    # Treinamento
+    for epoch in range(num_epochs):
+        model.train()
+        running_loss = 0.0
+
+        for inputs, masks in train_loader:
+            inputs = inputs.to(device)
+            masks = masks.to(device).long().squeeze(1)  # Ajustar dimensões
+
+            optimizer.zero_grad()
+            outputs = model(inputs)['out']
+            loss = criterion(outputs, masks)
+            loss.backward()
+            optimizer.step()
+
+            running_loss += loss.item() * inputs.size(0)
+
+        epoch_loss = running_loss / len(train_loader.dataset)
+        st.write(f'Época [{epoch+1}/{num_epochs}], Perda de Treino: {epoch_loss:.4f}')
+
+        # Validação
+        model.eval()
+        val_loss = 0.0
+        with torch.no_grad():
+            for inputs, masks in val_loader:
+                inputs = inputs.to(device)
+                masks = masks.to(device).long().squeeze(1)
+
+                outputs = model(inputs)['out']
+                loss = criterion(outputs, masks)
+                val_loss += loss.item() * inputs.size(0)
+
+        val_loss = val_loss / len(val_loader.dataset)
+        st.write(f'Época [{epoch+1}/{num_epochs}], Perda de Validação: {val_loss:.4f}')
+
+    return model
 
 if __name__ == "__main__":
     main()

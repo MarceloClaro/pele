@@ -520,20 +520,17 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
             # Get current timestamp
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-            # Ajustar o intervalo de épocas
-            epochs_range = range(1, len(st.session_state.train_losses) + 1)
-
             # Gráfico de Perda
-            ax[0].plot(epochs_range, st.session_state.train_losses, label='Treino')
-            ax[0].plot(epochs_range, st.session_state.valid_losses, label='Validação')
+            ax[0].plot(range(1, len(st.session_state.train_losses) + 1), st.session_state.train_losses, label='Treino')
+            ax[0].plot(range(1, len(st.session_state.valid_losses) + 1), st.session_state.valid_losses, label='Validação')
             ax[0].set_title(f'Perda por Época ({timestamp})')
             ax[0].set_xlabel('Épocas')
             ax[0].set_ylabel('Perda')
             ax[0].legend()
 
             # Gráfico de Acurácia
-            ax[1].plot(epochs_range, st.session_state.train_accuracies, label='Treino')
-            ax[1].plot(epochs_range, st.session_state.valid_accuracies, label='Validação')
+            ax[1].plot(range(1, len(st.session_state.train_accuracies) + 1), st.session_state.train_accuracies, label='Treino')
+            ax[1].plot(range(1, len(st.session_state.valid_accuracies) + 1), st.session_state.valid_accuracies, label='Validação')
             ax[1].set_title(f'Acurácia por Época ({timestamp})')
             ax[1].set_xlabel('Épocas')
             ax[1].set_ylabel('Acurácia')
@@ -595,7 +592,8 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
         model.load_state_dict(best_model_wts)
 
     # Gráficos de Perda e Acurácia finais
-    plot_metrics(epochs, st.session_state.train_losses, st.session_state.valid_losses, st.session_state.train_accuracies, st.session_state.valid_accuracies)
+    plot_metrics(st.session_state.train_losses, st.session_state.valid_losses, 
+                st.session_state.train_accuracies, st.session_state.valid_accuracies)
 
     # Avaliação Final no Conjunto de Teste
     st.write("**Avaliação no Conjunto de Teste**")
@@ -620,11 +618,11 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
 
     return model, full_dataset.classes
 
-def plot_metrics(epochs, train_losses, valid_losses, train_accuracies, valid_accuracies):
+def plot_metrics(train_losses, valid_losses, train_accuracies, valid_accuracies):
     """
     Plota os gráficos de perda e acurácia.
     """
-    epochs_range = range(1, len(train_losses)+1)
+    epochs_range = range(1, len(train_losses) + 1)
     fig, ax = plt.subplots(1, 2, figsize=(14, 5))
 
     # Get current timestamp
@@ -945,7 +943,7 @@ def main():
     # Layout da página
     if os.path.exists('capa.png'):
         try:
-            st.image('capa.png', width=100, caption='Laboratório de Educação e Inteligência Artificial - Geomaker. "A melhor forma de prever o futuro é inventá-lo." - Alan Kay', use_column_width=True)
+            st.image('capa.png', width=100, caption='Laboratório de Educação e Inteligência Artificial - Geomaker. "A melhor forma de prever o futuro é inventá-lo." - Alan Kay', use_container_width=True)
         except UnidentifiedImageError:
             st.warning("Imagem 'capa.png' não pôde ser carregada ou está corrompida.")
     else:
@@ -1179,7 +1177,7 @@ def main():
                 st.error(f"Erro ao abrir a imagem: {e}")
                 return
 
-            st.image(eval_image, caption='Imagem para avaliação', use_column_width=True)
+            st.image(eval_image, caption='Imagem para avaliação', use_container_width=True)
 
             if 'model' in st.session_state and 'classes' in st.session_state:
                 class_name, confidence = evaluate_image(st.session_state['model'], eval_image, st.session_state['classes'])

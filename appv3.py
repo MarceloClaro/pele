@@ -1,5 +1,3 @@
-# (As importações e configurações iniciais permanecem as mesmas)
-
 import os
 import zipfile
 import shutil
@@ -46,7 +44,7 @@ sns.set_style('whitegrid')
 
 def set_seed(seed):
     """
-    Define a seed para garantir a reprodutibilidade.
+    Define uma seed para garantir a reprodutibilidade.
     """
     random.seed(seed)
     np.random.seed(seed)
@@ -386,21 +384,20 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
     valid_df['class_name'] = valid_df['label'].map(idx_to_class)
     test_df['class_name'] = test_df['label'].map(idx_to_class)
 
-    # Exibir dataframes no Streamlit
+    # Exibir dataframes no Streamlit sem a coluna 'augmented_image'
     st.write("**Dataframe do Conjunto de Treinamento com Data Augmentation e Embeddings:**")
-    st.dataframe(train_df.head())
+    st.dataframe(train_df.drop(columns=['augmented_image']).head())
 
     st.write("**Dataframe do Conjunto de Validação:**")
-    st.dataframe(valid_df.head())
+    st.dataframe(valid_df.drop(columns=['augmented_image']).head())
 
     st.write("**Dataframe do Conjunto de Teste:**")
-    st.dataframe(test_df.head())
+    st.dataframe(test_df.drop(columns=['augmented_image']).head())
 
     # Exibir algumas imagens augmentadas
     display_augmented_images(train_df, full_dataset.classes)
 
     # Visualizar os embeddings
-    st.write("**Visualização dos Embeddings do Conjunto de Treinamento:**")
     visualize_embeddings(train_df, full_dataset.classes)
 
     # Exibir contagem de imagens por classe nos conjuntos de treinamento e teste
@@ -444,10 +441,14 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
     optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=learning_rate, weight_decay=l2_lambda)
 
     # Inicializar as listas de perdas e acurácias no st.session_state
-    st.session_state.train_losses = []
-    st.session_state.valid_losses = []
-    st.session_state.train_accuracies = []
-    st.session_state.valid_accuracies = []
+    if 'train_losses' not in st.session_state:
+        st.session_state.train_losses = []
+    if 'valid_losses' not in st.session_state:
+        st.session_state.valid_losses = []
+    if 'train_accuracies' not in st.session_state:
+        st.session_state.train_accuracies = []
+    if 'valid_accuracies' not in st.session_state:
+        st.session_state.valid_accuracies = []
 
     # Early Stopping
     best_valid_loss = float('inf')
@@ -747,7 +748,10 @@ def perform_clustering(model, dataloader, classes):
     labels = []
 
     # Remover a última camada (classificador)
-    model_feat = nn.Sequential(*list(model.children())[:-1])
+    if isinstance(model, nn.Sequential):
+        model_feat = model
+    else:
+        model_feat = nn.Sequential(*list(model.children())[:-1])
     model_feat.eval()
     model_feat.to(device)
 
@@ -941,7 +945,7 @@ def main():
     # Layout da página
     if os.path.exists('capa.png'):
         try:
-            st.image('capa.png', width=100, caption='Laboratório de Educação e Inteligência Artificial - Geomaker. "A melhor forma de prever o futuro é inventá-lo." - Alan Kay', use_container_width=True)
+            st.image('capa.png', width=100, caption='Laboratório de Educação e Inteligência Artificial - Geomaker. "A melhor forma de prever o futuro é inventá-lo." - Alan Kay', use_column_width=True)
         except UnidentifiedImageError:
             st.warning("Imagem 'capa.png' não pôde ser carregada ou está corrompida.")
     else:
@@ -991,11 +995,12 @@ def main():
                 # Treinar o modelo de segmentação
                 st.write("Iniciando o treinamento do modelo de segmentação...")
                 segmentation_model = train_segmentation_model(images_dir, masks_dir, num_classes_segmentation)
-                st.success("Treinamento do modelo de segmentação concluído!")
+                if segmentation_model is not None:
+                    st.success("Treinamento do modelo de segmentação concluído!")
             else:
                 st.error("Estrutura de diretórios inválida no arquivo ZIP. Certifique-se de que as imagens estão em 'images/' e as máscaras em 'masks/'.")
         else:
-            st.error("Por favor, faça upload do conjunto de dados de segmentação.")
+            st.warning("Aguardando o upload do conjunto de dados de segmentação.")
     else:
         segmentation_model = None
 

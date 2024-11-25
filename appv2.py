@@ -788,10 +788,12 @@ def main():
     st.subheader("Opções para o Modelo de Segmentação")
     segmentation_option = st.selectbox("Deseja utilizar um modelo de segmentação?", ["Não", "Utilizar modelo pré-treinado", "Treinar novo modelo de segmentação"], key="segmentation_option")
     if segmentation_option == "Utilizar modelo pré-treinado":
-        segmentation_model = get_segmentation_model(num_classes=21)  # 21 classes do PASCAL VOC
+        num_classes_segmentation = st.number_input("Número de Classes para Segmentação (Modelo Pré-treinado):", min_value=1, step=1, value=21, key="num_classes_segmentation_pretrained")
+        segmentation_model = get_segmentation_model(num_classes=num_classes_segmentation)  # Número de classes definido pelo usuário
         st.write("Modelo de segmentação pré-treinado carregado.")
     elif segmentation_option == "Treinar novo modelo de segmentação":
         st.write("Treinamento do modelo de segmentação com seu próprio conjunto de dados.")
+        num_classes_segmentation = st.number_input("Número de Classes para Segmentação:", min_value=1, step=1, key="num_classes_segmentation")
         # Upload do conjunto de dados de segmentação
         segmentation_zip = st.file_uploader("Faça upload de um arquivo ZIP contendo as imagens e máscaras de segmentação", type=["zip"], key="segmentation_zip")
         if segmentation_zip is not None:
@@ -809,7 +811,7 @@ def main():
             if os.path.exists(images_dir) and os.path.exists(masks_dir):
                 # Treinar o modelo de segmentação
                 st.write("Iniciando o treinamento do modelo de segmentação...")
-                segmentation_model = train_segmentation_model(images_dir, masks_dir)
+                segmentation_model = train_segmentation_model(images_dir, masks_dir, num_classes_segmentation)
                 st.success("Treinamento do modelo de segmentação concluído!")
             else:
                 st.error("Estrutura de diretórios inválida no arquivo ZIP. Certifique-se de que as imagens estão em 'images/' e as máscaras em 'masks/'.")
@@ -1015,12 +1017,11 @@ def main():
     # Encerrar a aplicação
     st.write("Obrigado por utilizar o aplicativo!")
 
-def train_segmentation_model(images_dir, masks_dir):
+def train_segmentation_model(images_dir, masks_dir, num_classes):
     """
     Treina o modelo de segmentação com o conjunto de dados fornecido pelo usuário.
     """
     set_seed(42)
-    num_classes = 2  # Ajuste conforme o número de classes em seu conjunto de dados
     batch_size = 4
     num_epochs = 25
     learning_rate = 0.001

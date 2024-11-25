@@ -828,36 +828,37 @@ def main():
         if 'model' not in st.session_state or 'classes' not in st.session_state:
             st.warning("Nenhum modelo carregado ou treinado. Por favor, carregue um modelo existente ou treine um novo modelo.")
             # Opção para carregar um modelo existente
-            model_file = st.file_uploader("Faça upload do arquivo do modelo (.pt ou .pth)", type=["pt", "pth"], key="model_file_uploader_eval")
-            if model_file is not None:
-                num_classes = st.number_input("Número de Classes:", min_value=2, step=1, key="num_classes_eval")
-                model_name = st.selectbox("Modelo Pré-treinado:", options=['ResNet18', 'ResNet50', 'DenseNet121'], key="model_name_eval")
-                model = get_model(model_name, num_classes, dropout_p=0.5, fine_tune=False)
-                if model is None:
+            model_file_eval = st.file_uploader("Faça upload do arquivo do modelo (.pt ou .pth)", type=["pt", "pth"], key="model_file_uploader_eval")
+            if model_file_eval is not None:
+                num_classes_eval = st.number_input("Número de Classes:", min_value=2, step=1, key="num_classes_eval")
+                model_name_eval = st.selectbox("Modelo Pré-treinado:", options=['ResNet18', 'ResNet50', 'DenseNet121'], key="model_name_eval")
+                model_eval = get_model(model_name_eval, num_classes_eval, dropout_p=0.5, fine_tune=False)
+                if model_eval is None:
                     st.error("Erro ao carregar o modelo.")
                     return
                 try:
-                    state_dict = torch.load(model_file, map_location=device)
-                    model.load_state_dict(state_dict)
-                    st.session_state['model'] = model
+                    state_dict = torch.load(model_file_eval, map_location=device)
+                    model_eval.load_state_dict(state_dict)
+                    st.session_state['model'] = model_eval
                     st.success("Modelo carregado com sucesso!")
                 except Exception as e:
                     st.error(f"Erro ao carregar o modelo: {e}")
                     return
 
                 # Carregar as classes
-                classes_file = st.file_uploader("Faça upload do arquivo com as classes (classes.txt)", type=["txt"], key="classes_file_uploader_eval")
-                if classes_file is not None:
-                    classes = classes_file.read().decode("utf-8").splitlines()
-                    st.session_state['classes'] = classes
-                    st.write(f"Classes carregadas: {classes}")
+                classes_file_eval = st.file_uploader("Faça upload do arquivo com as classes (classes.txt)", type=["txt"], key="classes_file_uploader_eval")
+                if classes_file_eval is not None:
+                    classes_eval = classes_file_eval.read().decode("utf-8").splitlines()
+                    st.session_state['classes'] = classes_eval
+                    st.write(f"Classes carregadas: {classes_eval}")
                 else:
                     st.error("Por favor, forneça o arquivo com as classes.")
             else:
                 st.info("Aguardando o upload do modelo e das classes.")
         else:
-            model = st.session_state['model']
-            classes = st.session_state['classes']
+            model_eval = st.session_state['model']
+            classes_eval = st.session_state['classes']
+            model_name_eval = model_name  # Usar o mesmo modelo selecionado anteriormente
 
         eval_image_file = st.file_uploader("Faça upload da imagem para avaliação", type=["png", "jpg", "jpeg", "bmp", "gif"], key="eval_image_file")
         if eval_image_file is not None:
@@ -868,10 +869,10 @@ def main():
                 st.error(f"Erro ao abrir a imagem: {e}")
                 return
 
-            st.image(eval_image, caption='Imagem para avaliação', use_container_width=True)
+            st.image(eval_image, caption='Imagem para avaliação', use_column_width=True)
 
-            if 'model' in locals() and 'classes' in locals():
-                class_name, confidence = evaluate_image(model, eval_image, classes)
+            if 'model' in st.session_state and 'classes' in st.session_state:
+                class_name, confidence = evaluate_image(st.session_state['model'], eval_image, st.session_state['classes'])
                 st.write(f"**Classe Predita:** {class_name}")
                 st.write(f"**Confiança:** {confidence:.4f}")
 
@@ -881,7 +882,7 @@ def main():
                     segmentation = st.checkbox("Visualizar Segmentação", value=True, key="segmentation_checkbox")
 
                 # Visualizar ativações e segmentação
-                visualize_activations(model, eval_image, classes, model_name, segmentation_model=segmentation_model, segmentation=segmentation)
+                visualize_activations(st.session_state['model'], eval_image, st.session_state['classes'], model_name, segmentation_model=segmentation_model, segmentation=segmentation)
             else:
                 st.error("Modelo ou classes não carregados. Por favor, carregue um modelo ou treine um novo modelo.")
 
@@ -923,10 +924,10 @@ def main():
     # Opções de carregamento do modelo
     st.header("Opções de Carregamento do Modelo")
 
-    model_option = st.selectbox("Escolha uma opção:", ["Treinar um novo modelo", "Carregar um modelo existente"], key="model_option")
+    model_option = st.selectbox("Escolha uma opção:", ["Treinar um novo modelo", "Carregar um modelo existente"], key="model_option_main")
     if model_option == "Carregar um modelo existente":
         # Upload do modelo pré-treinado
-        model_file = st.file_uploader("Faça upload do arquivo do modelo (.pt ou .pth)", type=["pt", "pth"], key="model_file_uploader")
+        model_file = st.file_uploader("Faça upload do arquivo do modelo (.pt ou .pth)", type=["pt", "pth"], key="model_file_uploader_main")
         if model_file is not None and num_classes > 0:
             # Carregar o modelo
             model = get_model(model_name, num_classes, dropout_p=0.5, fine_tune=False)
@@ -945,7 +946,7 @@ def main():
                 return
 
             # Carregar as classes
-            classes_file = st.file_uploader("Faça upload do arquivo com as classes (classes.txt)", type=["txt"], key="classes_file_uploader")
+            classes_file = st.file_uploader("Faça upload do arquivo com as classes (classes.txt)", type=["txt"], key="classes_file_uploader_main")
             if classes_file is not None:
                 classes = classes_file.read().decode("utf-8").splitlines()
                 st.session_state['classes'] = classes
@@ -959,7 +960,6 @@ def main():
     elif model_option == "Treinar um novo modelo":
         # Upload do arquivo ZIP
         zip_file = st.file_uploader("Upload do arquivo ZIP com as imagens", type=["zip"], key="zip_file_uploader")
-
         if zip_file is not None and num_classes > 0 and train_split + valid_split <= 0.95:
             temp_dir = tempfile.mkdtemp()
             zip_path = os.path.join(temp_dir, "uploaded.zip")

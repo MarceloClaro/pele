@@ -50,6 +50,7 @@ def set_seed(seed):
     torch.manual_seed(seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
+    # As linhas abaixo são recomendadas para garantir reprodutibilidade
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
@@ -239,6 +240,11 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
     # Carregar o dataset original sem transformações
     full_dataset = datasets.ImageFolder(root=data_dir)
 
+    # Verificar se há classes suficientes
+    if len(full_dataset.classes) < num_classes:
+        st.error(f"O número de classes encontradas ({len(full_dataset.classes)}) é menor do que o número especificado ({num_classes}).")
+        return None
+
     # Exibir algumas imagens do dataset
     visualize_data(full_dataset, full_dataset.classes)
     plot_class_distribution(full_dataset, full_dataset.classes)
@@ -263,6 +269,11 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
     train_dataset = torch.utils.data.Subset(train_dataset, train_indices)
     valid_dataset = torch.utils.data.Subset(valid_dataset, valid_indices)
     test_dataset = torch.utils.data.Subset(test_dataset, test_indices)
+
+    # Verificar se há dados suficientes em cada conjunto
+    if len(train_dataset) == 0 or len(valid_dataset) == 0 or len(test_dataset) == 0:
+        st.error("Divisão dos dados resultou em um conjunto vazio. Ajuste os percentuais de divisão.")
+        return None
 
     # Dataloaders
     g = torch.Generator()
@@ -290,16 +301,16 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
     # Definir o otimizador com L2 regularization (weight_decay)
     optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=learning_rate, weight_decay=l2_lambda)
 
-    # Listas para armazenar as perdas e acurácias
-    if 'train_losses' not in st.session_state:
-        st.session_state.train_losses = []
-        st.session_state.valid_losses = []
-        st.session_state.train_accuracies = []
-        st.session_state.valid_accuracies = []
+    # Inicializar as listas de perdas e acurácias no st.session_state
+    st.session_state.train_losses = []
+    st.session_state.valid_losses = []
+    st.session_state.train_accuracies = []
+    st.session_state.valid_accuracies = []
 
     # Early Stopping
     best_valid_loss = float('inf')
     epochs_no_improve = 0
+    best_model_wts = None  # Inicializar
 
     # Placeholders para gráficos dinâmicos
     placeholder = st.empty()
@@ -363,7 +374,8 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
         with placeholder.container():
             fig, ax = plt.subplots(1, 2, figsize=(14, 5))
 
-            epochs_range = range(1, epoch + 2)  # Ajustar o intervalo de épocas
+            # Ajustar o intervalo de épocas
+            epochs_range = range(1, len(st.session_state.train_losses) + 1)
 
             # Gráfico de Perda
             ax[0].plot(epochs_range, st.session_state.train_losses, label='Treino')
@@ -416,11 +428,13 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
             epochs_no_improve += 1
             if epochs_no_improve >= patience:
                 st.write('Early stopping!')
-                model.load_state_dict(best_model_wts)
+                if best_model_wts is not None:
+                    model.load_state_dict(best_model_wts)
                 break
 
-    # Carregar os melhores pesos do modelo
-    model.load_state_dict(best_model_wts)
+    # Carregar os melhores pesos do modelo se houver
+    if best_model_wts is not None:
+        model.load_state_dict(best_model_wts)
 
     # Gráficos de Perda e Acurácia finais
     plot_metrics(epochs, st.session_state.train_losses, st.session_state.valid_losses, st.session_state.train_accuracies, st.session_state.valid_accuracies)
@@ -436,6 +450,11 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
     # Liberar memória
     del train_loader, valid_loader
     gc.collect()
+
+    # Armazenar o modelo e as classes no st.session_state
+    st.session_state['model'] = model
+    st.session_state['classes'] = full_dataset.classes
+    st.session_state['model_name'] = model_name  # Armazena o nome do modelo
 
     return model, full_dataset.classes
 
@@ -850,9 +869,7 @@ def main():
                 return
 
             model, classes = model_data
-            st.session_state['model'] = model
-            st.session_state['classes'] = classes
-            st.session_state['model_name'] = model_name  # Armazena o nome do modelo
+            # O modelo e as classes já estão armazenados no st.session_state
             st.success("Treinamento concluído!")
 
             # Opção para baixar o modelo treinado
@@ -947,7 +964,7 @@ def main():
                     segmentation = st.checkbox("Visualizar Segmentação", value=True, key="segmentation_checkbox")
 
                 # Visualizar ativações e segmentação
-                model_name_for_visualization = st.session_state.get('model_name', model_name)
+                model_name_for_visualization = st.session_state.get('model_name', 'ResNet18')
                 visualize_activations(st.session_state['model'], eval_image, st.session_state['classes'], model_name_for_visualization, segmentation_model=segmentation_model, segmentation=segmentation)
             else:
                 st.error("Modelo ou classes não carregados. Por favor, carregue um modelo ou treine um novo modelo.")
@@ -983,6 +1000,9 @@ def train_segmentation_model(images_dir, masks_dir, num_classes):
     # Dividir em treino e validação
     train_size = int(0.8 * len(dataset))
     val_size = len(dataset) - train_size
+    if train_size == 0 or val_size == 0:
+        st.error("Conjunto de dados de segmentação muito pequeno para dividir em treino e validação.")
+        return None
     train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
 
     # Dataloaders

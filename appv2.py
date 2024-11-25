@@ -786,14 +786,14 @@ def main():
 
     # Opções para o modelo de segmentação
     st.subheader("Opções para o Modelo de Segmentação")
-    segmentation_option = st.selectbox("Deseja utilizar um modelo de segmentação?", ["Não", "Utilizar modelo pré-treinado", "Treinar novo modelo de segmentação"])
+    segmentation_option = st.selectbox("Deseja utilizar um modelo de segmentação?", ["Não", "Utilizar modelo pré-treinado", "Treinar novo modelo de segmentação"], key="segmentation_option")
     if segmentation_option == "Utilizar modelo pré-treinado":
         segmentation_model = get_segmentation_model(num_classes=21)  # 21 classes do PASCAL VOC
         st.write("Modelo de segmentação pré-treinado carregado.")
     elif segmentation_option == "Treinar novo modelo de segmentação":
         st.write("Treinamento do modelo de segmentação com seu próprio conjunto de dados.")
         # Upload do conjunto de dados de segmentação
-        segmentation_zip = st.file_uploader("Faça upload de um arquivo ZIP contendo as imagens e máscaras de segmentação", type=["zip"])
+        segmentation_zip = st.file_uploader("Faça upload de um arquivo ZIP contendo as imagens e máscaras de segmentação", type=["zip"], key="segmentation_zip")
         if segmentation_zip is not None:
             temp_seg_dir = tempfile.mkdtemp()
             zip_path = os.path.join(temp_seg_dir, "segmentation.zip")
@@ -820,16 +820,16 @@ def main():
 
     # Avaliação de uma imagem individual (movida para antes do treinamento)
     st.header("Avaliação de Imagem")
-    evaluate = st.radio("Deseja avaliar uma imagem?", ("Sim", "Não"))
+    evaluate = st.radio("Deseja avaliar uma imagem?", ("Sim", "Não"), key="evaluate_option")
     if evaluate == "Sim":
         # Verificar se o modelo já foi carregado ou treinado
         if 'model' not in st.session_state or 'classes' not in st.session_state:
             st.warning("Nenhum modelo carregado ou treinado. Por favor, carregue um modelo existente ou treine um novo modelo.")
             # Opção para carregar um modelo existente
-            model_file = st.file_uploader("Faça upload do arquivo do modelo (.pt ou .pth)", type=["pt", "pth"])
+            model_file = st.file_uploader("Faça upload do arquivo do modelo (.pt ou .pth)", type=["pt", "pth"], key="model_file_uploader_eval")
             if model_file is not None:
-                num_classes = st.number_input("Número de Classes:", min_value=2, step=1)
-                model_name = st.selectbox("Modelo Pré-treinado:", options=['ResNet18', 'ResNet50', 'DenseNet121'])
+                num_classes = st.number_input("Número de Classes:", min_value=2, step=1, key="num_classes_eval")
+                model_name = st.selectbox("Modelo Pré-treinado:", options=['ResNet18', 'ResNet50', 'DenseNet121'], key="model_name_eval")
                 model = get_model(model_name, num_classes, dropout_p=0.5, fine_tune=False)
                 if model is None:
                     st.error("Erro ao carregar o modelo.")
@@ -844,7 +844,7 @@ def main():
                     return
 
                 # Carregar as classes
-                classes_file = st.file_uploader("Faça upload do arquivo com as classes (classes.txt)", type=["txt"])
+                classes_file = st.file_uploader("Faça upload do arquivo com as classes (classes.txt)", type=["txt"], key="classes_file_uploader_eval")
                 if classes_file is not None:
                     classes = classes_file.read().decode("utf-8").splitlines()
                     st.session_state['classes'] = classes
@@ -857,7 +857,7 @@ def main():
             model = st.session_state['model']
             classes = st.session_state['classes']
 
-        eval_image_file = st.file_uploader("Faça upload da imagem para avaliação", type=["png", "jpg", "jpeg", "bmp", "gif"])
+        eval_image_file = st.file_uploader("Faça upload da imagem para avaliação", type=["png", "jpg", "jpeg", "bmp", "gif"], key="eval_image_file")
         if eval_image_file is not None:
             eval_image_file.seek(0)
             try:
@@ -876,7 +876,7 @@ def main():
                 # Opção para visualizar segmentação
                 segmentation = False
                 if segmentation_model is not None:
-                    segmentation = st.checkbox("Visualizar Segmentação", value=True)
+                    segmentation = st.checkbox("Visualizar Segmentação", value=True, key="segmentation_checkbox")
 
                 # Visualizar ativações e segmentação
                 visualize_activations(model, eval_image, classes, model_name, segmentation_model=segmentation_model, segmentation=segmentation)
@@ -885,17 +885,17 @@ def main():
 
     # Barra Lateral de Configurações
     st.sidebar.title("Configurações do Treinamento")
-    num_classes = st.sidebar.number_input("Número de Classes:", min_value=2, step=1)
-    model_name = st.sidebar.selectbox("Modelo Pré-treinado:", options=['ResNet18', 'ResNet50', 'DenseNet121'])
-    fine_tune = st.sidebar.checkbox("Fine-Tuning Completo", value=False)
-    epochs = st.sidebar.slider("Número de Épocas:", min_value=1, max_value=500, value=200, step=1)
-    learning_rate = st.sidebar.select_slider("Taxa de Aprendizagem:", options=[0.1, 0.01, 0.001, 0.0001], value=0.0001)
-    batch_size = st.sidebar.selectbox("Tamanho de Lote:", options=[4, 8, 16, 32, 64], index=2)
-    train_split = st.sidebar.slider("Percentual de Treinamento:", min_value=0.5, max_value=0.9, value=0.7, step=0.05)
-    valid_split = st.sidebar.slider("Percentual de Validação:", min_value=0.05, max_value=0.4, value=0.15, step=0.05)
-    l2_lambda = st.sidebar.number_input("L2 Regularization (Weight Decay):", min_value=0.0, max_value=0.1, value=0.01, step=0.01)
-    patience = st.sidebar.number_input("Paciência para Early Stopping:", min_value=1, max_value=10, value=3, step=1)
-    use_weighted_loss = st.sidebar.checkbox("Usar Perda Ponderada para Classes Desbalanceadas", value=False)
+    num_classes = st.sidebar.number_input("Número de Classes:", min_value=2, step=1, key="num_classes")
+    model_name = st.sidebar.selectbox("Modelo Pré-treinado:", options=['ResNet18', 'ResNet50', 'DenseNet121'], key="model_name")
+    fine_tune = st.sidebar.checkbox("Fine-Tuning Completo", value=False, key="fine_tune")
+    epochs = st.sidebar.slider("Número de Épocas:", min_value=1, max_value=500, value=200, step=1, key="epochs")
+    learning_rate = st.sidebar.select_slider("Taxa de Aprendizagem:", options=[0.1, 0.01, 0.001, 0.0001], value=0.0001, key="learning_rate")
+    batch_size = st.sidebar.selectbox("Tamanho de Lote:", options=[4, 8, 16, 32, 64], index=2, key="batch_size")
+    train_split = st.sidebar.slider("Percentual de Treinamento:", min_value=0.5, max_value=0.9, value=0.7, step=0.05, key="train_split")
+    valid_split = st.sidebar.slider("Percentual de Validação:", min_value=0.05, max_value=0.4, value=0.15, step=0.05, key="valid_split")
+    l2_lambda = st.sidebar.number_input("L2 Regularization (Weight Decay):", min_value=0.0, max_value=0.1, value=0.01, step=0.01, key="l2_lambda")
+    patience = st.sidebar.number_input("Paciência para Early Stopping:", min_value=1, max_value=10, value=3, step=1, key="patience")
+    use_weighted_loss = st.sidebar.checkbox("Usar Perda Ponderada para Classes Desbalanceadas", value=False, key="use_weighted_loss")
     st.sidebar.image("eu.ico", width=80)
     st.sidebar.write("""
     Produzido pelo:
@@ -921,10 +921,10 @@ def main():
     # Opções de carregamento do modelo
     st.header("Opções de Carregamento do Modelo")
 
-    model_option = st.selectbox("Escolha uma opção:", ["Treinar um novo modelo", "Carregar um modelo existente"])
+    model_option = st.selectbox("Escolha uma opção:", ["Treinar um novo modelo", "Carregar um modelo existente"], key="model_option")
     if model_option == "Carregar um modelo existente":
         # Upload do modelo pré-treinado
-        model_file = st.file_uploader("Faça upload do arquivo do modelo (.pt ou .pth)", type=["pt", "pth"])
+        model_file = st.file_uploader("Faça upload do arquivo do modelo (.pt ou .pth)", type=["pt", "pth"], key="model_file_uploader")
         if model_file is not None and num_classes > 0:
             # Carregar o modelo
             model = get_model(model_name, num_classes, dropout_p=0.5, fine_tune=False)
@@ -943,7 +943,7 @@ def main():
                 return
 
             # Carregar as classes
-            classes_file = st.file_uploader("Faça upload do arquivo com as classes (classes.txt)", type=["txt"])
+            classes_file = st.file_uploader("Faça upload do arquivo com as classes (classes.txt)", type=["txt"], key="classes_file_uploader")
             if classes_file is not None:
                 classes = classes_file.read().decode("utf-8").splitlines()
                 st.session_state['classes'] = classes
@@ -956,7 +956,7 @@ def main():
 
     elif model_option == "Treinar um novo modelo":
         # Upload do arquivo ZIP
-        zip_file = st.file_uploader("Upload do arquivo ZIP com as imagens", type=["zip"])
+        zip_file = st.file_uploader("Upload do arquivo ZIP com as imagens", type=["zip"], key="zip_file_uploader")
 
         if zip_file is not None and num_classes > 0 and train_split + valid_split <= 0.95:
             temp_dir = tempfile.mkdtemp()
@@ -989,7 +989,8 @@ def main():
                 label="Download do Modelo",
                 data=buffer,
                 file_name="modelo_treinado.pth",
-                mime="application/octet-stream"
+                mime="application/octet-stream",
+                key="download_model_button"
             )
 
             # Salvar as classes em um arquivo
@@ -998,7 +999,8 @@ def main():
                 label="Download das Classes",
                 data=classes_data,
                 file_name="classes.txt",
-                mime="text/plain"
+                mime="text/plain",
+                key="download_classes_button"
             )
 
             # Limpar o diretório temporário

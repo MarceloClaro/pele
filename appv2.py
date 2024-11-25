@@ -412,7 +412,7 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
             })
 
             # Botão para limpar o histórico
-            if st.button("Limpar Histórico"):
+            if st.button("Limpar Histórico", key=f"limpar_historico_epoch_{epoch}"):
                 st.session_state.train_losses = []
                 st.session_state.valid_losses = []
                 st.session_state.train_accuracies = []

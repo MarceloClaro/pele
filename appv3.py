@@ -135,7 +135,7 @@ def visualize_data(dataset, classes):
     Exibe algumas imagens do conjunto de dados com suas classes.
     """
     st.write("Visualização de algumas imagens do conjunto de dados:")
-    fig, axes = plt.subplots(1, 10, figsize=(15, 3))
+    fig, axes = plt.subplots(1, 10, figsize=(20, 4))
     for i in range(10):
         idx = np.random.randint(len(dataset))
         image, label = dataset[idx]
@@ -314,6 +314,42 @@ def display_all_augmented_images(df, class_names, max_images=None):
                 with cols[col]:
                     st.image(image, caption=class_names[label], use_column_width=True)
 
+def visualize_embeddings(df, class_names):
+    """
+    Reduz a dimensionalidade dos embeddings e os visualiza em 2D.
+    
+    Args:
+        df (pd.DataFrame): DataFrame contendo os embeddings e rótulos.
+        class_names (list): Lista com os nomes das classes.
+    """
+    embeddings = np.vstack(df['embedding'].values)
+    labels = df['label'].values
+
+    # Redução de dimensionalidade com PCA
+    pca = PCA(n_components=2)
+    embeddings_2d = pca.fit_transform(embeddings)
+
+    # Criar DataFrame para plotagem
+    plot_df = pd.DataFrame({
+        'PC1': embeddings_2d[:, 0],
+        'PC2': embeddings_2d[:, 1],
+        'label': labels
+    })
+
+    # Plotar
+    plt.figure(figsize=(10, 7))
+    sns.scatterplot(data=plot_df, x='PC1', y='PC2', hue='label', palette='Set2', legend='full')
+
+    # Configurações do gráfico
+    plt.title('Visualização dos Embeddings com PCA')
+    plt.legend(title='Classes', labels=class_names)
+    plt.xlabel('Componente Principal 1')
+    plt.ylabel('Componente Principal 2')
+    
+    # Exibir no Streamlit
+    st.pyplot(plt)
+    plt.close()  # Fechar a figura para liberar memória
+
 def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_rate, batch_size, train_split, valid_split, use_weighted_loss, l2_lambda, patience):
     """
     Função principal para treinamento do modelo de classificação.
@@ -328,11 +364,11 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
         st.error(f"O número de classes encontradas ({len(full_dataset.classes)}) é menor do que o número especificado ({num_classes}).")
         return None
 
-    # Exibir todas as linhas do dataframe (removendo a limitação de 5 linhas)
+    # Exibir dados
     visualize_data(full_dataset, full_dataset.classes)
     plot_class_distribution(full_dataset, full_dataset.classes)
 
-    # Dividir os índices para treino, validação e teste
+    # Divisão dos dados
     dataset_size = len(full_dataset)
     indices = list(range(dataset_size))
     np.random.shuffle(indices)

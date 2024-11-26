@@ -135,8 +135,8 @@ def visualize_data(dataset, classes):
     Exibe algumas imagens do conjunto de dados com suas classes.
     """
     st.write("Visualização de algumas imagens do conjunto de dados:")
-    fig, axes = plt.subplots(1, 5, figsize=(15, 3))
-    for i in range(5):
+    fig, axes = plt.subplots(1, 10, figsize=(15, 3))
+    for i in range(10):
         idx = np.random.randint(len(dataset))
         image, label = dataset[idx]
         image = np.array(image)  # Converter a imagem PIL em array NumPy

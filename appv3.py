@@ -286,47 +286,33 @@ def apply_transforms_and_get_embeddings(dataset, model, transform, batch_size=16
 
     return df
 
-def display_augmented_images(df, class_names):
+def display_all_augmented_images(df, class_names, max_images=None):
     """
-    Exibe algumas imagens augmentadas do DataFrame.
+    Exibe todas as imagens augmentadas do DataFrame de forma organizada.
     """
-    st.write("Visualização de algumas imagens após Data Augmentation:")
-    fig, axes = plt.subplots(1, 5, figsize=(15, 3))
-    sample_df = df.sample(n=5) if len(df) >= 5 else df
-    for idx, (i, row) in enumerate(sample_df.iterrows()):
-        image = row['augmented_image']
-        label = row['label']
-        axes[idx].imshow(image)
-        axes[idx].set_title(class_names[label])
-        axes[idx].axis('off')
-    st.pyplot(fig)
-    plt.close(fig)  # Fechar a figura para liberar memória
-
-def visualize_embeddings(df, class_names):
-    """
-    Reduz a dimensionalidade dos embeddings e os visualiza em 2D.
-    """
-    embeddings = np.vstack(df['embedding'].values)
-    labels = df['label'].values
-
-    # Redução de dimensionalidade com PCA
-    pca = PCA(n_components=2)
-    embeddings_2d = pca.fit_transform(embeddings)
-
-    # Criar DataFrame para plotagem
-    plot_df = pd.DataFrame({
-        'PC1': embeddings_2d[:, 0],
-        'PC2': embeddings_2d[:, 1],
-        'label': labels
-    })
-
-    # Plotar
-    plt.figure(figsize=(10, 7))
-    sns.scatterplot(data=plot_df, x='PC1', y='PC2', hue='label', palette='Set2', legend='full')
-    plt.title('Visualização dos Embeddings com PCA')
-    plt.legend(labels=class_names)
-    st.pyplot(plt)
-    plt.close()  # Fechar a figura para liberar memória
+    if max_images is not None:
+        df = df.head(max_images)
+        st.write(f"**Visualização das Primeiras {max_images} Imagens após Data Augmentation:**")
+    else:
+        st.write("**Visualização de Todas as Imagens após Data Augmentation:**")
+    
+    num_images = len(df)
+    if num_images == 0:
+        st.write("Nenhuma imagem para exibir.")
+        return
+    
+    cols_per_row = 5  # Número de colunas por linha
+    rows = (num_images + cols_per_row - 1) // cols_per_row  # Calcula o número de linhas necessárias
+    
+    for row in range(rows):
+        cols = st.columns(cols_per_row)
+        for col in range(cols_per_row):
+            idx = row * cols_per_row + col
+            if idx < num_images:
+                image = df.iloc[idx]['augmented_image']
+                label = df.iloc[idx]['label']
+                with cols[col]:
+                    st.image(image, caption=class_names[label], use_column_width=True)
 
 def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_rate, batch_size, train_split, valid_split, use_weighted_loss, l2_lambda, patience):
     """
@@ -342,7 +328,7 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
         st.error(f"O número de classes encontradas ({len(full_dataset.classes)}) é menor do que o número especificado ({num_classes}).")
         return None
 
-    # Exibir algumas imagens do dataset
+    # Exibir todas as linhas do dataframe (removendo a limitação de 5 linhas)
     visualize_data(full_dataset, full_dataset.classes)
     plot_class_distribution(full_dataset, full_dataset.classes)
 
@@ -388,18 +374,18 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
     valid_df['class_name'] = valid_df['label'].map(idx_to_class)
     test_df['class_name'] = test_df['label'].map(idx_to_class)
 
-    # Exibir dataframes no Streamlit sem a coluna 'augmented_image'
+    # Exibir dataframes no Streamlit sem a coluna 'augmented_image' e sem limitar a 5 linhas
     st.write("**Dataframe do Conjunto de Treinamento com Data Augmentation e Embeddings:**")
-    st.dataframe(train_df.drop(columns=['augmented_image']).head())
+    st.dataframe(train_df.drop(columns=['augmented_image']))
 
     st.write("**Dataframe do Conjunto de Validação:**")
-    st.dataframe(valid_df.drop(columns=['augmented_image']).head())
+    st.dataframe(valid_df.drop(columns=['augmented_image']))
 
     st.write("**Dataframe do Conjunto de Teste:**")
-    st.dataframe(test_df.drop(columns=['augmented_image']).head())
+    st.dataframe(test_df.drop(columns=['augmented_image']))
 
-    # Exibir algumas imagens augmentadas
-    display_augmented_images(train_df, full_dataset.classes)
+    # Exibir todas as imagens augmentadas (ou limitar conforme necessário)
+    display_all_augmented_images(train_df, full_dataset.classes, max_images=100)  # Ajuste 'max_images' conforme necessário
 
     # Visualizar os embeddings
     visualize_embeddings(train_df, full_dataset.classes)

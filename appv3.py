@@ -144,6 +144,7 @@ def visualize_data(dataset, classes):
         axes[i].set_title(classes[label])
         axes[i].axis('off')
     st.pyplot(fig)
+    plt.close(fig)  # Fechar a figura para liberar memória
 
 def plot_class_distribution(dataset, classes):
     """
@@ -176,6 +177,7 @@ def plot_class_distribution(dataset, classes):
     ax.set_ylabel("Número de Imagens")
 
     st.pyplot(fig)
+    plt.close(fig)  # Fechar a figura para liberar memória
 
 def get_model(model_name, num_classes, dropout_p=0.5, fine_tune=False):
     """
@@ -298,6 +300,7 @@ def display_augmented_images(df, class_names):
         axes[idx].set_title(class_names[label])
         axes[idx].axis('off')
     st.pyplot(fig)
+    plt.close(fig)  # Fechar a figura para liberar memória
 
 def visualize_embeddings(df, class_names):
     """
@@ -323,6 +326,7 @@ def visualize_embeddings(df, class_names):
     plt.title('Visualização dos Embeddings com PCA')
     plt.legend(labels=class_names)
     st.pyplot(plt)
+    plt.close()  # Fechar a figura para liberar memória
 
 def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_rate, batch_size, train_split, valid_split, use_weighted_loss, l2_lambda, patience):
     """
@@ -537,6 +541,7 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
             ax[1].legend()
 
             st.pyplot(fig)
+            plt.close(fig)  # Fechar a figura para liberar memória
 
         # Atualizar texto de progresso
         progress = (epoch + 1) / epochs
@@ -555,6 +560,7 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
             ax_loss.set_ylabel('Perda')
             ax_loss.legend()
             st.pyplot(fig_loss)
+            plt.close(fig_loss)  # Fechar a figura para liberar memória
 
             # Gráfico de Acurácia
             fig_acc, ax_acc = plt.subplots(figsize=(5, 3))
@@ -565,6 +571,7 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
             ax_acc.set_ylabel('Acurácia')
             ax_acc.legend()
             st.pyplot(fig_acc)
+            plt.close(fig_acc)  # Fechar a figura para liberar memória
 
             # Botão para limpar o histórico
             if st.button("Limpar Histórico", key=f"limpar_historico_epoch_{epoch}"):
@@ -645,6 +652,7 @@ def plot_metrics(train_losses, valid_losses, train_accuracies, valid_accuracies)
     ax[1].legend()
 
     st.pyplot(fig)
+    plt.close(fig)  # Fechar a figura para liberar memória
 
 def compute_metrics(model, dataloader, classes):
     """
@@ -681,6 +689,7 @@ def compute_metrics(model, dataloader, classes):
     ax.set_ylabel('Verdadeiro')
     ax.set_title('Matriz de Confusão Normalizada')
     st.pyplot(fig)
+    plt.close(fig)  # Fechar a figura para liberar memória
 
     # Curva ROC
     if len(classes) == 2:
@@ -694,6 +703,7 @@ def compute_metrics(model, dataloader, classes):
         ax.set_title('Curva ROC')
         ax.legend(loc='lower right')
         st.pyplot(fig)
+        plt.close(fig)  # Fechar a figura para liberar memória
     else:
         # Multiclasse
         binarized_labels = label_binarize(all_labels, classes=range(len(classes)))
@@ -734,6 +744,7 @@ def error_analysis(model, dataloader, classes):
             axes[i].set_title(f"V: {classes[misclassified_labels[i]]}\nP: {classes[misclassified_preds[i]]}")
             axes[i].axis('off')
         st.pyplot(fig)
+        plt.close(fig)  # Fechar a figura para liberar memória
     else:
         st.write("Nenhuma imagem mal classificada encontrada.")
 
@@ -792,6 +803,7 @@ def perform_clustering(model, dataloader, classes):
     ax[1].set_title('Clusterização Hierárquica')
 
     st.pyplot(fig)
+    plt.close(fig)  # Fechar a figura para liberar memória
 
     # Métricas de Avaliação
     ari_kmeans = adjusted_rand_score(labels, clusters_kmeans)
@@ -856,16 +868,15 @@ def visualize_activations(model, image, class_names, model_name, segmentation_mo
     # Criar o objeto CAM usando torchcam
     cam_extractor = SmoothGradCAMpp(model, target_layer=target_layer)
 
-    # Usar o gerenciador de contexto para garantir que os hooks sejam removidos
-    with cam_extractor:
-        with torch.set_grad_enabled(True):
-            out = model(input_tensor)  # Faz a previsão
-            probabilities = torch.nn.functional.softmax(out, dim=1)
-            confidence, pred = torch.max(probabilities, 1)  # Obtém a classe predita
-            pred_class = pred.item()
+    # Ativar Grad-CAM
+    with torch.set_grad_enabled(True):
+        out = model(input_tensor)  # Faz a previsão
+        probabilities = torch.nn.functional.softmax(out, dim=1)
+        confidence, pred = torch.max(probabilities, 1)  # Obtém a classe predita
+        pred_class = pred.item()
 
-            # Gerar o mapa de ativação
-            activation_map = cam_extractor(pred_class, out)
+        # Gerar o mapa de ativação
+        activation_map = cam_extractor(pred_class, out)
 
     # Converter o mapa de ativação para PIL Image
     activation_map = activation_map[0]
@@ -906,6 +917,7 @@ def visualize_activations(model, image, class_names, model_name, segmentation_mo
 
         # Exibir as imagens com o Streamlit
         st.pyplot(fig)
+        plt.close(fig)  # Fechar a figura para liberar memória
     else:
         # Exibir as imagens: Imagem Original e Grad-CAM
         fig, ax = plt.subplots(1, 2, figsize=(10, 5))
@@ -922,6 +934,7 @@ def visualize_activations(model, image, class_names, model_name, segmentation_mo
 
         # Exibir as imagens com o Streamlit
         st.pyplot(fig)
+        plt.close(fig)  # Fechar a figura para liberar memória
 
 def main():
     # Definir o caminho do ícone

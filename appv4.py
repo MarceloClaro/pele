@@ -14,7 +14,6 @@ from torch.utils.data import DataLoader, random_split
 from torchvision import transforms, datasets
 from torchvision.models import resnet18, resnet50, densenet121
 from torchvision.models import ResNet18_Weights, ResNet50_Weights, DenseNet121_Weights
-from torchvision.models.segmentation import fcn_resnet50, FCNHead  # Importação corrigida
 from sklearn.cluster import AgglomerativeClustering, KMeans
 from sklearn.metrics import (
     adjusted_rand_score, normalized_mutual_info_score,
@@ -105,50 +104,7 @@ class CustomDataset(torch.utils.data.Dataset):
         return image, label
 
 
-# Transformação personalizada para máscaras de segmentação
-class MaskToTensor:
-    def __call__(self, mask):
-        return torch.as_tensor(np.array(mask), dtype=torch.long)
-
-
-# Dataset personalizado para segmentação
-class SegmentationDataset(torch.utils.data.Dataset):
-    def __init__(self, images_dir, masks_dir, transform=None, target_transform=None):
-        self.images_dir = images_dir
-        self.masks_dir = masks_dir
-        self.transform = transform
-        self.target_transform = target_transform
-        self.images = sorted(os.listdir(images_dir))
-        self.masks = sorted(os.listdir(masks_dir))
-
-        # Verificação para garantir que cada imagem tenha uma máscara correspondente
-        if len(self.images) != len(self.masks):
-            raise ValueError("Número de imagens e máscaras não correspondem.")
-
-        # Opcional: Verificar correspondência de nomes
-        for img, mask in zip(self.images, self.masks):
-            if not img.split('.')[0] == mask.split('.')[0]:
-                raise ValueError(f"Imagem {img} e máscara {mask} não correspondem.")
-
-    def __len__(self):
-        return len(self.images)
-
-    def __getitem__(self, idx):
-        img_path = os.path.join(self.images_dir, self.images[idx])
-        mask_path = os.path.join(self.masks_dir, self.masks[idx])
-
-        image = Image.open(img_path).convert("RGB")
-        mask = Image.open(mask_path)
-
-        if self.transform:
-            image = self.transform(image)
-
-        if self.target_transform:
-            mask = self.target_transform(mask)
-
-        return image, mask
-
-
+# Definição de uma função para lidar com a semeadura nos workers do DataLoader
 def seed_worker(worker_id):
     """
     Função para definir a seed em cada worker do DataLoader.
@@ -244,29 +200,6 @@ def get_model(model_name, num_classes, dropout_p=0.5, fine_tune=False):
         )
     else:
         st.error("Modelo não suportado.")
-        return None
-
-    model = model.to(device)
-    return model
-
-
-def get_segmentation_model(num_classes, fine_tune=False):
-    """
-    Retorna o modelo pré-treinado para segmentação.
-    """
-    weights = FCN_ResNet50_Weights.DEFAULT
-    model = fcn_resnet50(weights=weights)
-    if not fine_tune:
-        for param in model.parameters():
-            param.requires_grad = False
-
-    # Ajustar a última camada para o número de classes do usuário
-    try:
-        # Substituir as camadas inteiras 'classifier' e 'aux_classifier' com novas instâncias de FCNHead
-        model.classifier = FCNHead(2048, num_classes)
-        model.aux_classifier = FCNHead(1024, num_classes)
-    except Exception as e:
-        st.error(f"Erro ao ajustar as camadas do modelo de segmentação: {e}")
         return None
 
     model = model.to(device)
@@ -929,32 +862,9 @@ def evaluate_image(model, image, classes):
         return class_name, confidence.item()
 
 
-def label_to_color_image(label):
+def visualize_activations(model, image, class_names, model_name):
     """
-    Mapeia uma máscara de segmentação para uma imagem colorida.
-    """
-    colormap = create_pascal_label_colormap()
-    return colormap[label]
-
-
-def create_pascal_label_colormap():
-    """
-    Cria um mapa de cores para o conjunto de dados PASCAL VOC.
-    """
-    colormap = np.zeros((256, 3), dtype=int)
-    ind = np.arange(256, dtype=int)
-
-    for shift in reversed(range(8)):
-        for channel in range(3):
-            colormap[:, channel] |= ((ind >> channel) & 1) << shift
-        ind >>= 3
-
-    return colormap
-
-
-def visualize_activations(model, image, class_names, model_name, segmentation_model=None, segmentation=False):
-    """
-    Visualiza as ativações na imagem usando Grad-CAM e adiciona a segmentação de objetos.
+    Visualiza as ativações na imagem usando Grad-CAM.
     """
     model.eval()  # Coloca o modelo em modo de avaliação
     input_tensor = test_transforms(image).unsqueeze(0).to(device)
@@ -988,56 +898,22 @@ def visualize_activations(model, image, class_names, model_name, segmentation_mo
     # Converter a imagem para array NumPy
     image_np = np.array(image)
 
-    if segmentation and segmentation_model is not None:
-        # Aplicar o modelo de segmentação
-        segmentation_model.eval()
-        with torch.no_grad():
-            segmentation_output = segmentation_model(input_tensor)['out']
-            segmentation_mask = torch.argmax(segmentation_output.squeeze(), dim=0).cpu().numpy()
+    # Exibir as imagens: Imagem Original e Grad-CAM
+    fig, ax = plt.subplots(1, 2, figsize=(10, 5))
 
-        # Mapear o índice da classe para uma cor
-        segmentation_colored = label_to_color_image(segmentation_mask).astype(np.uint8)
-        segmentation_colored = cv2.resize(segmentation_colored, (image.size[0], image.size[1]))
+    # Imagem original
+    ax[0].imshow(image_np)
+    ax[0].set_title('Imagem Original')
+    ax[0].axis('off')
 
-        # Exibir as imagens: Imagem Original, Grad-CAM e Segmentação
-        fig, ax = plt.subplots(1, 3, figsize=(15, 5))
+    # Imagem com Grad-CAM
+    ax[1].imshow(result)
+    ax[1].set_title('Grad-CAM')
+    ax[1].axis('off')
 
-        # Imagem original
-        ax[0].imshow(image_np)
-        ax[0].set_title('Imagem Original')
-        ax[0].axis('off')
-
-        # Imagem com Grad-CAM
-        ax[1].imshow(result)
-        ax[1].set_title('Grad-CAM')
-        ax[1].axis('off')
-
-        # Imagem com Segmentação
-        ax[2].imshow(image_np)
-        ax[2].imshow(segmentation_colored, alpha=0.6)
-        ax[2].set_title('Segmentação')
-        ax[2].axis('off')
-
-        # Exibir as imagens com o Streamlit
-        st.pyplot(fig)
-        plt.close(fig)  # Fechar a figura para liberar memória
-    else:
-        # Exibir as imagens: Imagem Original e Grad-CAM
-        fig, ax = plt.subplots(1, 2, figsize=(10, 5))
-
-        # Imagem original
-        ax[0].imshow(image_np)
-        ax[0].set_title('Imagem Original')
-        ax[0].axis('off')
-
-        # Imagem com Grad-CAM
-        ax[1].imshow(result)
-        ax[1].set_title('Grad-CAM')
-        ax[1].axis('off')
-
-        # Exibir as imagens com o Streamlit
-        st.pyplot(fig)
-        plt.close(fig)  # Fechar a figura para liberar memória
+    # Exibir as imagens com o Streamlit
+    st.pyplot(fig)
+    plt.close(fig)  # Fechar a figura para liberar memória
 
 
 def main():
@@ -1075,55 +951,9 @@ def main():
     else:
         st.sidebar.text("Imagem do logotipo não encontrada.")
 
-    st.title("Classificação e Segmentação de Imagens com Aprendizado Profundo")
-    st.write("Este aplicativo permite treinar um modelo de classificação de imagens, aplicar algoritmos de clustering para análise comparativa e realizar segmentação de objetos.")
+    st.title("Classificação de Imagens com Aprendizado Profundo")
+    st.write("Este aplicativo permite treinar um modelo de classificação de imagens, aplicar algoritmos de clustering para análise comparativa e realizar avaliações detalhadas.")
     st.write("As etapas são cuidadosamente documentadas para auxiliar na reprodução e análise científica.")
-
-    # Inicializar segmentation_model
-    segmentation_model = None
-
-    # Opções para o modelo de segmentação
-    st.subheader("Opções para o Modelo de Segmentação")
-    segmentation_option = st.selectbox("Deseja utilizar um modelo de segmentação?", ["Não", "Utilizar modelo pré-treinado", "Treinar novo modelo de segmentação"])
-    if segmentation_option == "Utilizar modelo pré-treinado":
-        num_classes_segmentation = st.number_input("Número de Classes para Segmentação (Modelo Pré-treinado):", min_value=1, step=1, value=21)
-        segmentation_model = get_segmentation_model(num_classes=num_classes_segmentation)
-        if segmentation_model is not None:
-            st.write("Modelo de segmentação pré-treinado carregado.")
-        else:
-            st.error("Erro ao carregar o modelo de segmentação pré-treinado.")
-    elif segmentation_option == "Treinar novo modelo de segmentação":
-        st.write("Treinamento do modelo de segmentação com seu próprio conjunto de dados.")
-        num_classes_segmentation = st.number_input("Número de Classes para Segmentação:", min_value=1, step=1)
-        # Upload do conjunto de dados de segmentação
-        segmentation_zip = st.file_uploader("Faça upload de um arquivo ZIP contendo as imagens e máscaras de segmentação", type=["zip"])
-        if segmentation_zip is not None:
-            try:
-                temp_seg_dir = tempfile.mkdtemp()
-                zip_path = os.path.join(temp_seg_dir, "segmentation.zip")
-                with open(zip_path, "wb") as f:
-                    f.write(segmentation_zip.read())
-                with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                    zip_ref.extractall(temp_seg_dir)
-
-                # Espera-se que as imagens estejam em 'images/' e as máscaras em 'masks/' dentro do ZIP
-                images_dir = os.path.join(temp_seg_dir, 'images')
-                masks_dir = os.path.join(temp_seg_dir, 'masks')
-
-                if os.path.exists(images_dir) and os.path.exists(masks_dir):
-                    # Treinar o modelo de segmentação
-                    st.write("Iniciando o treinamento do modelo de segmentação...")
-                    segmentation_model = train_segmentation_model(images_dir, masks_dir, num_classes_segmentation)
-                    if segmentation_model is not None:
-                        st.success("Treinamento do modelo de segmentação concluído!")
-                else:
-                    st.error("Estrutura de diretórios inválida no arquivo ZIP. Certifique-se de que as imagens estão em 'images/' e as máscaras em 'masks/'.")
-            except Exception as e:
-                st.error(f"Erro durante o processamento do arquivo ZIP: {e}")
-        else:
-            st.warning("Aguardando o upload do conjunto de dados de segmentação.")
-    else:
-        segmentation_model = None
 
     # Barra Lateral de Configurações
     st.sidebar.title("Configurações do Treinamento")
@@ -1153,6 +983,7 @@ def main():
     Whatsapp: (88)981587145
 
     Instagram: [marceloclaro.geomaker](https://www.instagram.com/marceloclaro.geomaker/)
+
     """)
 
     # Verificar se a soma dos splits é válida
@@ -1413,95 +1244,11 @@ def main():
                         st.write(f"**Classe Predita:** {class_name}")
                         st.write(f"**Confiança:** {confidence:.4f}")
                         # Visualizar ativações
-                        visualize_activations(st.session_state['model'], image, st.session_state['classes'], st.session_state['trained_model_name'], segmentation_model, segmentation_option != "Não")
+                        visualize_activations(st.session_state['model'], image, st.session_state['classes'])
                 except Exception as e:
                     st.error(f"Erro ao processar a imagem: {e}")
     else:
         st.write("Avaliação de imagem desativada.")
-
-
-def train_segmentation_model(images_dir, masks_dir, num_classes):
-    """
-    Treina o modelo de segmentação com o conjunto de dados fornecido pelo usuário.
-    """
-    set_seed(42)
-    batch_size = 4
-    num_epochs = 25
-    learning_rate = 0.001
-
-    # Transformações
-    input_transforms = transforms.Compose([
-        transforms.Resize((256, 256)),
-        transforms.ToTensor(),
-    ])
-    target_transforms = transforms.Compose([
-        MaskToTensor(),
-    ])
-
-    # Dataset
-    try:
-        dataset = SegmentationDataset(images_dir, masks_dir, transform=input_transforms, target_transform=target_transforms)
-    except Exception as e:
-        st.error(f"Erro ao criar o dataset de segmentação: {e}")
-        return None
-
-    # Dividir em treino e validação
-    train_size = int(0.8 * len(dataset))
-    val_size = len(dataset) - train_size
-    if train_size == 0 or val_size == 0:
-        st.error("Conjunto de dados de segmentação muito pequeno para dividir em treino e validação.")
-        return None
-    train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
-
-    # Dataloaders
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, worker_init_fn=seed_worker)
-    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, worker_init_fn=seed_worker)
-
-    # Modelo
-    model = get_segmentation_model(num_classes=num_classes, fine_tune=True)
-    if model is None:
-        return None
-
-    # Otimizador e função de perda
-    criterion = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=learning_rate)
-
-    # Treinamento
-    for epoch in range(num_epochs):
-        model.train()
-        running_loss = 0.0
-
-        for inputs, masks in train_loader:
-            inputs = inputs.to(device)
-            masks = masks.to(device)
-
-            optimizer.zero_grad()
-            outputs = model(inputs)['out']
-            loss = criterion(outputs, masks)
-            loss.backward()
-            optimizer.step()
-
-            running_loss += loss.item() * inputs.size(0)
-
-        epoch_loss = running_loss / len(train_loader.dataset)
-        st.write(f'Época [{epoch+1}/{num_epochs}], Perda de Treino: {epoch_loss:.4f}')
-
-        # Validação
-        model.eval()
-        val_loss = 0.0
-        with torch.no_grad():
-            for inputs, masks in val_loader:
-                inputs = inputs.to(device)
-                masks = masks.to(device)
-
-                outputs = model(inputs)['out']
-                loss = criterion(outputs, masks)
-                val_loss += loss.item() * inputs.size(0)
-
-        val_loss = val_loss / len(val_loader.dataset)
-        st.write(f'Época [{epoch+1}/{num_epochs}], Perda de Validação: {val_loss:.4f}')
-
-    return model
 
 
 if __name__ == "__main__":

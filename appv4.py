@@ -14,7 +14,7 @@ from torch.utils.data import DataLoader, random_split
 from torchvision import transforms, datasets
 from torchvision.models import resnet18, resnet50, densenet121
 from torchvision.models import ResNet18_Weights, ResNet50_Weights, DenseNet121_Weights
-from torchvision.models.segmentation import fcn_resnet50, FCN_ResNet50_Weights, FCNHead
+from torchvision.models.segmentation import fcn_resnet50, FCNHead
 from sklearn.cluster import AgglomerativeClustering, KMeans
 from sklearn.metrics import (
     adjusted_rand_score, normalized_mutual_info_score,

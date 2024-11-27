@@ -10,28 +10,30 @@ import seaborn as sns
 from PIL import Image, UnidentifiedImageError
 import torch
 from torch import nn, optim
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, random_split
 from torchvision import transforms, datasets
 from torchvision.models import resnet18, resnet50, densenet121
 from torchvision.models import ResNet18_Weights, ResNet50_Weights, DenseNet121_Weights
 from sklearn.cluster import AgglomerativeClustering, KMeans
-from sklearn.metrics import (
-    adjusted_rand_score, normalized_mutual_info_score,
-    confusion_matrix, classification_report,
-    roc_auc_score, roc_curve
-)
+from sklearn.metrics import (adjusted_rand_score, normalized_mutual_info_score,
+                             confusion_matrix, classification_report,
+                             roc_auc_score, roc_curve)
 from sklearn.preprocessing import label_binarize
 from sklearn.decomposition import PCA
+from sklearn import metrics
+from sklearn.utils import resample
+from statsmodels.stats.multicomp import pairwise_tukeyhsd
 import streamlit as st
 import gc
 import logging
+import base64
+from torchcam.methods import SmoothGradCAMpp
+from torchcam.utils import overlay_mask
+from torchvision.transforms.functional import to_pil_image
 import io
 import warnings
-from datetime import datetime  # Importação para data e hora
-
-# Importações adicionais para análises estatísticas
-import scipy.stats as stats
-from statsmodels.stats.multicomp import pairwise_tukeyhsd
+from datetime import datetime
+from scipy import stats
 
 # Supressão dos avisos relacionados ao torch.classes
 warnings.filterwarnings("ignore", category=UserWarning, message=".*torch.classes.*")
@@ -98,7 +100,6 @@ class CustomDataset(torch.utils.data.Dataset):
         return image, label
 
 
-# Definição de uma função para lidar com a semeadura nos workers do DataLoader
 def seed_worker(worker_id):
     """
     Função para definir a seed em cada worker do DataLoader.
@@ -216,10 +217,7 @@ def apply_transforms_and_get_embeddings(dataset, model, transform, batch_size=16
     augmented_images_list = []
 
     # Remover a última camada do modelo para extrair os embeddings
-    if isinstance(model, nn.Sequential):
-        model_embedding = model
-    else:
-        model_embedding = nn.Sequential(*list(model.children())[:-1])
+    model_embedding = nn.Sequential(*list(model.children())[:-1])
     model_embedding.eval()
     model_embedding.to(device)
 
@@ -264,15 +262,15 @@ def display_all_augmented_images(df, class_names, max_images=None):
         st.write(f"**Visualização das Primeiras {max_images} Imagens após Data Augmentation:**")
     else:
         st.write("**Visualização de Todas as Imagens após Data Augmentation:**")
-
+    
     num_images = len(df)
     if num_images == 0:
         st.write("Nenhuma imagem para exibir.")
         return
-
+    
     cols_per_row = 5  # Número de colunas por linha
     rows = (num_images + cols_per_row - 1) // cols_per_row  # Calcula o número de linhas necessárias
-
+    
     for row in range(rows):
         cols = st.columns(cols_per_row)
         for col in range(cols_per_row):
@@ -281,7 +279,7 @@ def display_all_augmented_images(df, class_names, max_images=None):
                 image = df.iloc[idx]['augmented_image']
                 label = df.iloc[idx]['label']
                 with cols[col]:
-                    st.image(image, caption=class_names[label], use_container_width=True)
+                    st.image(image, caption=class_names[label], use_column_width=True)
 
 
 def visualize_embeddings(df, class_names):
@@ -321,19 +319,14 @@ def visualize_embeddings(df, class_names):
     plt.close()  # Fechar a figura para liberar memória
 
 
-def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_rate, batch_size, train_split, valid_split, use_weighted_loss, l2_lambda, patience, model_id=None, run_id=1):
+def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_rate, batch_size, train_split, valid_split, use_weighted_loss, l2_lambda, patience, model_id=None, run_id=None):
     """
     Função principal para treinamento do modelo de classificação.
-    Agora inclui um run_id para identificar múltiplas execuções por modelo.
     """
-    set_seed(42 + run_id)  # Variar a seed para diferentes execuções
+    set_seed(42)
 
     # Carregar o dataset original sem transformações
-    try:
-        full_dataset = datasets.ImageFolder(root=data_dir)
-    except Exception as e:
-        st.error(f"Erro ao carregar o dataset: {e}")
-        return None
+    full_dataset = datasets.ImageFolder(root=data_dir)
 
     # Verificar se há classes suficientes
     if len(full_dataset.classes) < num_classes:
@@ -418,7 +411,7 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
 
     # Dataloaders
     g = torch.Generator()
-    g.manual_seed(42 + run_id)  # Variar a seed para diferentes execuções
+    g.manual_seed(42)
 
     if use_weighted_loss:
         targets = [full_dataset.targets[i] for i in train_indices]
@@ -451,8 +444,6 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
         st.session_state.train_accuracies = []
     if 'valid_accuracies' not in st.session_state:
         st.session_state.valid_accuracies = []
-    if 'all_model_metrics' not in st.session_state:
-        st.session_state.all_model_metrics = []
 
     # Early Stopping
     best_valid_loss = float('inf')
@@ -466,6 +457,7 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
 
     # Treinamento
     for epoch in range(epochs):
+        set_seed(42 + epoch)
         running_loss = 0.0
         running_corrects = 0
         model.train()
@@ -572,14 +564,12 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
             st.pyplot(fig_acc)
             plt.close(fig_acc)  # Fechar a figura para liberar memória
 
-            # Botão para limpar o histórico com chave única
-            limpar_key = f"limpar_historico_{model_id}_run_{run_id}_epoch_{epoch}"
-            if st.button("Limpar Histórico", key=limpar_key):
+            # Botão para limpar o histórico
+            if st.button("Limpar Histórico", key=f"limpar_historico_{model_id}_run_{run_id}_epoch_{epoch}"):
                 st.session_state.train_losses = []
                 st.session_state.valid_losses = []
                 st.session_state.train_accuracies = []
                 st.session_state.valid_accuracies = []
-                st.session_state.all_model_metrics = []
                 st.experimental_rerun()
 
         # Early Stopping
@@ -600,31 +590,31 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
         model.load_state_dict(best_model_wts)
 
     # Gráficos de Perda e Acurácia finais
-    plot_metrics(st.session_state.train_losses, st.session_state.valid_losses,
-                 st.session_state.train_accuracies, st.session_state.valid_accuracies)
+    plot_metrics(st.session_state.train_losses, st.session_state.valid_losses, 
+                st.session_state.train_accuracies, st.session_state.valid_accuracies)
 
     # Avaliação Final no Conjunto de Teste
     st.write("**Avaliação no Conjunto de Teste**")
     metrics = compute_metrics(model, test_loader, full_dataset.classes)
 
-    # Armazenar as métricas
-    model_metrics = {
-        'Model': model_id if model_id else "Modelo",
-        'Run': run_id,
-        'Accuracy': metrics['accuracy'],
-        'Precision': metrics['precision'],
-        'Recall': metrics['recall'],
-        'F1_Score': metrics['f1_score'],
-        'ROC_AUC': metrics['roc_auc']
-    }
+    # Análise de Erros
+    st.write("**Análise de Erros**")
+    error_analysis(model, test_loader, full_dataset.classes)
 
-    # Adicionar as métricas ao session_state se model_id for fornecido
-    if model_id is not None:
-        if 'all_model_metrics' not in st.session_state:
-            st.session_state.all_model_metrics = []
-        st.session_state.all_model_metrics.append(model_metrics)
+    # **Clusterização e Análise Comparativa**
+    st.write("**Análise de Clusterização**")
+    perform_clustering(model, test_loader, full_dataset.classes)
 
-    return model, full_dataset.classes, model_metrics
+    # Liberar memória
+    del train_loader, valid_loader
+    gc.collect()
+
+    # Armazenar o modelo e as classes no st.session_state
+    st.session_state['model'] = model
+    st.session_state['classes'] = full_dataset.classes
+    st.session_state['trained_model_name'] = model_name  # Armazena o nome do modelo treinado
+
+    return model, full_dataset.classes, metrics
 
 
 def plot_metrics(train_losses, valid_losses, train_accuracies, valid_accuracies):
@@ -660,7 +650,6 @@ def plot_metrics(train_losses, valid_losses, train_accuracies, valid_accuracies)
 def compute_metrics(model, dataloader, classes):
     """
     Calcula métricas detalhadas e exibe matriz de confusão e relatório de classificação.
-    Retorna um dicionário com as métricas calculadas.
     """
     model.eval()
     all_preds = []
@@ -712,25 +701,25 @@ def compute_metrics(model, dataloader, classes):
     else:
         # Multiclasse
         binarized_labels = label_binarize(all_labels, classes=range(len(classes)))
-        if binarized_labels.shape[1] > 1:
-            roc_auc = roc_auc_score(binarized_labels, np.array(all_probs), average='weighted', multi_class='ovr')
-            st.write(f"AUC-ROC Média Ponderada: {roc_auc:.4f}")
-        else:
-            st.write("AUC-ROC não pode ser calculada para uma única classe.")
+        roc_auc = roc_auc_score(binarized_labels, np.array(all_probs), average='weighted', multi_class='ovr')
+        st.write(f"AUC-ROC Média Ponderada: {roc_auc:.4f}")
 
-    # Cálculo das métricas de acurácia, precisão, recall e F1-score
-    accuracy = np.mean(np.array(all_preds) == np.array(all_labels))
+    # Coletar métricas para análise estatística
+    accuracy = report['accuracy']
     precision = np.nanmean([report[cls]['precision'] for cls in classes])
     recall = np.nanmean([report[cls]['recall'] for cls in classes])
     f1_score = np.nanmean([report[cls]['f1-score'] for cls in classes])
 
-    return {
-        'accuracy': accuracy,
-        'precision': precision,
-        'recall': recall,
-        'f1_score': f1_score,
-        'roc_auc': roc_auc
+    metrics = {
+        'Model': model.__class__.__name__,
+        'Accuracy': accuracy,
+        'Precision': precision,
+        'Recall': recall,
+        'F1_Score': f1_score,
+        'ROC_AUC': roc_auc if roc_auc is not None else np.nan
     }
+
+    return metrics
 
 
 def error_analysis(model, dataloader, classes):
@@ -870,11 +859,6 @@ def visualize_activations(model, image, class_names, model_name):
         st.error("Modelo não suportado para Grad-CAM.")
         return
 
-    # Importar pacotes necessários para Grad-CAM
-    from torchcam.methods import SmoothGradCAMpp
-    from torchvision.transforms.functional import to_pil_image
-    from torchcam.utils import overlay_mask
-
     # Criar o objeto CAM usando torchcam
     cam_extractor = SmoothGradCAMpp(model, target_layer=target_layer)
 
@@ -942,14 +926,14 @@ def main():
     # Carregar o logotipo na barra lateral
     if os.path.exists("logo.png"):
         try:
-            st.sidebar.image("logo.png", width=200, use_container_width=True)
+            st.sidebar.image("logo.png", width=200)
         except UnidentifiedImageError:
             st.sidebar.text("Imagem do logotipo não pôde ser carregada ou está corrompida.")
     else:
         st.sidebar.text("Imagem do logotipo não encontrada.")
 
     st.title("Classificação de Imagens com Aprendizado Profundo")
-    st.write("Este aplicativo permite treinar um modelo de classificação de imagens, aplicar algoritmos de clustering para análise comparativa e realizar avaliações detalhadas.")
+    st.write("Este aplicativo permite treinar múltiplos modelos de classificação de imagens, aplicar algoritmos de clustering para análise comparativa e realizar avaliações estatísticas detalhadas.")
     st.write("As etapas são cuidadosamente documentadas para auxiliar na reprodução e análise científica.")
 
     # Barra Lateral de Configurações
@@ -965,7 +949,7 @@ def main():
     l2_lambda = st.sidebar.number_input("L2 Regularization (Weight Decay):", min_value=0.0, max_value=0.1, value=0.01, step=0.01, key="l2_lambda")
     patience = st.sidebar.number_input("Paciência para Early Stopping:", min_value=1, max_value=10, value=3, step=1, key="patience")
     use_weighted_loss = st.sidebar.checkbox("Usar Perda Ponderada para Classes Desbalanceadas", value=False, key="use_weighted_loss")
-
+    st.sidebar.image("eu.ico", width=80)
     st.sidebar.write("""
     Produzido pelo:
 
@@ -980,7 +964,6 @@ def main():
     Whatsapp: (88)981587145
 
     Instagram: [marceloclaro.geomaker](https://www.instagram.com/marceloclaro.geomaker/)
-
     """)
 
     # Verificar se a soma dos splits é válida
@@ -1024,11 +1007,12 @@ def main():
                     for run in range(1, runs_per_model + 1):
                         st.write(f"**Treinando Modelo {i+1}/{num_models} - Execução {run}/{runs_per_model}**")
                         model_id = f"model_{i+1}"
+                        run_id = run
                         model_data = train_model(
                             data_dir, num_classes, model_name, fine_tune,
                             epochs, learning_rate, batch_size, train_split,
                             valid_split, use_weighted_loss, l2_lambda, patience,
-                            model_id=model_id, run_id=run  # Passar o run_id para métricas distintas
+                            model_id=model_id, run_id=run_id  # Passar o run_id para métricas distintas
                         )
 
                         if model_data is None:
@@ -1038,6 +1022,19 @@ def main():
                         model, classes, metrics = model_data
                         all_model_metrics.append(metrics)
                         st.success(f"Treinamento do Modelo {i+1}, Execução {run} concluído!")
+
+                        # Opção para baixar o modelo treinado
+                        st.write(f"Faça o download do modelo treinado para o Modelo {i+1}, Execução {run}:")
+                        buffer = io.BytesIO()
+                        torch.save(model.state_dict(), buffer)
+                        buffer.seek(0)
+                        st.download_button(
+                            label=f"Download do Modelo {i+1}_Execução_{run}",
+                            data=buffer,
+                            file_name=f"modelo_{i+1}_exec_{run}.pth",
+                            mime="application/octet-stream",
+                            key=f"download_model_button_{i+1}_{run}"
+                        )
 
                 # Limpar o diretório temporário
                 shutil.rmtree(temp_dir)
@@ -1069,7 +1066,7 @@ def main():
         # Realizar ANOVA para Cada Métrica
         st.subheader("Análise de Variância (ANOVA) para as Métricas de Desempenho")
         for metric in ['Accuracy', 'Precision', 'Recall', 'F1_Score', 'ROC_AUC']:
-            data = metrics_df[['Model', 'Run', metric]].dropna()
+            data = metrics_df[['Model', metric]].dropna()
             group_sizes = data.groupby('Model').size()
             st.write(f"**Métrica: {metric}**")
             st.write("**Tamanhos dos Grupos (Modelos):**")
@@ -1131,73 +1128,56 @@ def main():
                     st.error(f"Erro ao carregar as classes: {e}")
             else:
                 st.error("Por favor, forneça o arquivo com as classes.")
-        else:
-            st.warning("Por favor, forneça o modelo e o número de classes.")
 
     elif model_option == "Treinar um novo modelo":
-        # Upload do arquivo ZIP fora do botão para garantir que o arquivo seja carregado antes do treinamento
-        zip_file_train = st.file_uploader("Upload do arquivo ZIP com as imagens para treinamento", type=["zip"], key="zip_file_uploader_main_single")
-        if zip_file_train is not None and num_classes > 0 and train_split + valid_split <= 0.95:
+        # Upload do arquivo ZIP
+        zip_file = st.file_uploader("Upload do arquivo ZIP com as imagens", type=["zip"], key="zip_file_uploader")
+        if zip_file is not None and num_classes > 0 and train_split + valid_split <= 0.95:
             temp_dir = tempfile.mkdtemp()
-            try:
-                zip_path = os.path.join(temp_dir, "uploaded.zip")
-                with open(zip_path, "wb") as f:
-                    f.write(zip_file_train.read())
-                with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                    zip_ref.extractall(temp_dir)
-                data_dir = temp_dir
+            zip_path = os.path.join(temp_dir, "uploaded.zip")
+            with open(zip_path, "wb") as f:
+                f.write(zip_file.read())
+            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                zip_ref.extractall(temp_dir)
+            data_dir = temp_dir
 
-                st.write("Iniciando o treinamento supervisionado...")
-                model_data = train_model(
-                    data_dir, num_classes, model_name, fine_tune,
-                    epochs, learning_rate, batch_size, train_split,
-                    valid_split, use_weighted_loss, l2_lambda, patience,
-                    model_id="single_model", run_id=1  # Identificador único para modelo único
-                )
+            st.write("Iniciando o treinamento supervisionado...")
+            model_data = train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_rate, batch_size, train_split, valid_split, use_weighted_loss, l2_lambda, patience)
 
-                if model_data is None:
-                    st.error("Erro no treinamento do modelo.")
-                    shutil.rmtree(temp_dir)
-                    return
-
-                model, classes, metrics = model_data
-                # Armazenar o modelo e as classes no st.session_state
-                st.session_state['model'] = model
-                st.session_state['classes'] = classes
-                st.session_state['trained_model_name'] = model_name  # Armazena o nome do modelo treinado
-
-                st.success("Treinamento concluído!")
-
-                # Opção para baixar o modelo treinado
-                st.write("Faça o download do modelo treinado:")
-                buffer = io.BytesIO()
-                torch.save(model.state_dict(), buffer)
-                buffer.seek(0)
-                st.download_button(
-                    label="Download do Modelo",
-                    data=buffer,
-                    file_name="modelo_treinado.pth",
-                    mime="application/octet-stream",
-                    key="download_model_button"
-                )
-
-                # Salvar as classes em um arquivo
-                classes_data = "\n".join(classes)
-                st.download_button(
-                    label="Download das Classes",
-                    data=classes_data,
-                    file_name="classes.txt",
-                    mime="text/plain",
-                    key="download_classes_button"
-                )
-
-            except Exception as e:
-                st.error(f"Erro durante o treinamento: {e}")
-            finally:
-                # Limpar o diretório temporário
+            if model_data is None:
+                st.error("Erro no treinamento do modelo.")
                 shutil.rmtree(temp_dir)
-        else:
-            st.warning("Por favor, forneça os dados e as configurações corretas.")
+                return
+
+            model, classes, metrics = model_data
+            # O modelo e as classes já estão armazenados no st.session_state
+            st.success("Treinamento concluído!")
+
+            # Opção para baixar o modelo treinado
+            st.write("Faça o download do modelo treinado:")
+            buffer = io.BytesIO()
+            torch.save(model.state_dict(), buffer)
+            buffer.seek(0)
+            st.download_button(
+                label="Download do Modelo",
+                data=buffer,
+                file_name="modelo_treinado.pth",
+                mime="application/octet-stream",
+                key="download_model_button"
+            )
+
+            # Salvar as classes em um arquivo
+            classes_data = "\n".join(classes)
+            st.download_button(
+                label="Download das Classes",
+                data=classes_data,
+                file_name="classes.txt",
+                mime="text/plain",
+                key="download_classes_button"
+            )
+
+            # Limpar o diretório temporário
+            shutil.rmtree(temp_dir)
 
     # Avaliação de uma imagem individual
     st.header("Avaliação de Imagem")
@@ -1208,9 +1188,10 @@ def main():
             st.warning("Nenhum modelo carregado ou treinado. Por favor, carregue um modelo existente ou treine um novo modelo.")
             # Opção para carregar um modelo existente
             model_file_eval = st.file_uploader("Faça upload do arquivo do modelo (.pt ou .pth)", type=["pt", "pth"], key="model_file_uploader_eval")
-            if model_file_eval is not None and num_classes > 0:
-                # Carregar o modelo
-                model_eval = get_model(model_name, num_classes, dropout_p=0.5, fine_tune=False)
+            if model_file_eval is not None:
+                num_classes_eval = st.number_input("Número de Classes:", min_value=2, step=1, key="num_classes_eval")
+                model_name_eval = st.selectbox("Modelo Pré-treinado:", options=['ResNet18', 'ResNet50', 'DenseNet121'], key="model_name_eval")
+                model_eval = get_model(model_name_eval, num_classes_eval, dropout_p=0.5, fine_tune=False)
                 if model_eval is None:
                     st.error("Erro ao carregar o modelo.")
                     return
@@ -1218,7 +1199,7 @@ def main():
                     state_dict = torch.load(model_file_eval, map_location=device)
                     model_eval.load_state_dict(state_dict)
                     st.session_state['model'] = model_eval
-                    st.session_state['trained_model_name'] = model_name  # Armazena o nome do modelo treinado
+                    st.session_state['trained_model_name'] = model_name_eval  # Armazena o nome do modelo treinado
                     st.success("Modelo carregado com sucesso!")
                 except Exception as e:
                     st.error(f"Erro ao carregar o modelo: {e}")
@@ -1235,23 +1216,40 @@ def main():
                         st.error(f"Erro ao carregar as classes: {e}")
                 else:
                     st.error("Por favor, forneça o arquivo com as classes.")
+            else:
+                st.info("Aguardando o upload do modelo e das classes.")
         else:
-            # Se o modelo já estiver carregado ou treinado, permitir upload da imagem para avaliação
-            image_file = st.file_uploader("Faça upload de uma imagem para avaliação", type=["jpg", "jpeg", "png"], key="image_file_evaluate")
-            if image_file is not None:
-                try:
-                    image = Image.open(image_file).convert("RGB")
-                    st.image(image, caption="Imagem para Avaliação", use_container_width=True)
-                    if st.button("Avaliar Imagem", key="evaluate_image_button"):
-                        class_name, confidence = evaluate_image(st.session_state['model'], image, st.session_state['classes'])
-                        st.write(f"**Classe Predita:** {class_name}")
-                        st.write(f"**Confiança:** {confidence:.4f}")
-                        # Visualizar ativações
-                        visualize_activations(st.session_state['model'], image, st.session_state['classes'], st.session_state.get('trained_model_name', ''))
-                except Exception as e:
-                    st.error(f"Erro ao processar a imagem: {e}")
-    else:
-        st.write("Avaliação de imagem desativada.")
+            model_eval = st.session_state['model']
+            classes_eval = st.session_state['classes']
+            model_name_eval = st.session_state.get('trained_model_name', model_name)  # Usa o nome do modelo armazenado
+
+        eval_image_file = st.file_uploader("Faça upload da imagem para avaliação", type=["png", "jpg", "jpeg", "bmp", "gif"], key="eval_image_file")
+        if eval_image_file is not None:
+            eval_image_file.seek(0)
+            try:
+                eval_image = Image.open(eval_image_file).convert("RGB")
+            except Exception as e:
+                st.error(f"Erro ao abrir a imagem: {e}")
+                return
+
+            st.image(eval_image, caption='Imagem para avaliação', use_container_width=True)
+
+            if 'model' in st.session_state and 'classes' in st.session_state:
+                class_name, confidence = evaluate_image(st.session_state['model'], eval_image, st.session_state['classes'])
+                st.write(f"**Classe Predita:** {class_name}")
+                st.write(f"**Confiança:** {confidence:.4f}")
+
+                # Visualizar ativações
+                model_name_for_visualization = st.session_state.get('trained_model_name', 'ResNet18')
+                visualize_activations(st.session_state['model'], eval_image, st.session_state['classes'], model_name_for_visualization)
+            else:
+                st.error("Modelo ou classes não carregados. Por favor, carregue um modelo ou treine um novo modelo.")
+
+    st.write("### Documentação dos Procedimentos")
+    st.write("Todas as etapas foram cuidadosamente registradas. Utilize esta documentação para reproduzir o experimento e analisar os resultados.")
+
+    # Encerrar a aplicação
+    st.write("Obrigado por utilizar o aplicativo!")
 
 
 if __name__ == "__main__":

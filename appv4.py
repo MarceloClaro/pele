@@ -287,7 +287,7 @@ def display_all_augmented_images(df, class_names, max_images=None):
                 image = df.iloc[idx]['augmented_image']
                 label = df.iloc[idx]['label']
                 with cols[col]:
-                    st.image(image, caption=class_names[label], use_column_width=True)
+                    st.image(image, caption=class_names[label], use_container_width=True)
 
 
 def visualize_embeddings(df, class_names):
@@ -618,7 +618,7 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
 
     # Armazenar as métricas
     model_metrics = {
-        'Model': model_name,
+        'Model': model_id if model_id else "Modelo",
         'Accuracy': metrics['accuracy'],
         'Precision': metrics['precision'],
         'Recall': metrics['recall'],
@@ -945,7 +945,7 @@ def main():
     # Carregar o logotipo na barra lateral
     if os.path.exists("logo.png"):
         try:
-            st.sidebar.image("logo.png", width=200)
+            st.sidebar.image("logo.png", width=200, use_container_width=True)
         except UnidentifiedImageError:
             st.sidebar.text("Imagem do logotipo não pôde ser carregada ou está corrompida.")
     else:
@@ -968,7 +968,7 @@ def main():
     l2_lambda = st.sidebar.number_input("L2 Regularization (Weight Decay):", min_value=0.0, max_value=0.1, value=0.01, step=0.01, key="l2_lambda")
     patience = st.sidebar.number_input("Paciência para Early Stopping:", min_value=1, max_value=10, value=3, step=1, key="patience")
     use_weighted_loss = st.sidebar.checkbox("Usar Perda Ponderada para Classes Desbalanceadas", value=False, key="use_weighted_loss")
-    st.sidebar.image("eu.ico", width=80)
+    # st.sidebar.image("eu.ico", width=80)  # Certifique-se de que o arquivo 'eu.ico' existe ou remova esta linha
     st.sidebar.write("""
     Produzido pelo:
 
@@ -1068,27 +1068,28 @@ def main():
         # Realizar ANOVA para Cada Métrica
         st.subheader("Análise de Variância (ANOVA) para as Métricas de Desempenho")
         for metric in ['Accuracy', 'Precision', 'Recall', 'F1_Score', 'ROC_AUC']:
-            data = metrics_df[metric].dropna()
-            if len(data) > 1:
+            data = metrics_df[['Model', metric]].dropna()
+            group_sizes = data.groupby('Model').size()
+            if (group_sizes >= 2).all():
                 # Agrupar as métricas por modelo
-                groups = [group[1][metric].tolist() for group in metrics_df.groupby('Model')]
+                groups = [group[1][metric].tolist() for group in data.groupby('Model')]
                 anova_result = stats.f_oneway(*groups)
                 st.write(f"**{metric}:** F-statistic = {anova_result.statistic:.4f}, p-value = {anova_result.pvalue:.4f}")
             else:
-                st.write(f"**{metric}:** ANOVA não pode ser realizada com menos de duas observações.")
+                st.write(f"**{metric}:** ANOVA não pode ser realizada. Cada modelo deve ter pelo menos duas observações.")
 
         # Realizar Teste Tukey HSD para Cada Métrica
         st.subheader("Teste Post-Hoc Tukey HSD para as Métricas de Desempenho")
         for metric in ['Accuracy', 'Precision', 'Recall', 'F1_Score', 'ROC_AUC']:
-            data = metrics_df[metric].dropna()
-            if len(data) > 1:
+            data = metrics_df[['Model', metric]].dropna()
+            group_sizes = data.groupby('Model').size()
+            if (group_sizes >= 2).all():
                 # Supondo que cada modelo seja um grupo distinto
-                tukey = pairwise_tukeyhsd(endog=metrics_df[metric], groups=metrics_df['Model'], alpha=0.05)
+                tukey = pairwise_tukeyhsd(endog=data[metric], groups=data['Model'], alpha=0.05)
                 st.write(f"**{metric}:**")
                 st.text(tukey.summary())
             else:
-                st.write(f"**{metric}:** Teste Tukey HSD não pode ser realizado com menos de duas observações.")
-
+                st.write(f"**{metric}:** Teste Tukey HSD não pode ser realizado. Cada modelo deve ter pelo menos duas observações.")
 
     # Opções de carregamento do modelo
     st.header("Opções de Carregamento do Modelo")
@@ -1194,7 +1195,6 @@ def main():
         else:
             st.warning("Por favor, forneça os dados e as configurações corretas.")
 
-
     # Avaliação de uma imagem individual
     st.header("Avaliação de Imagem")
     evaluate = st.radio("Deseja avaliar uma imagem?", ("Sim", "Não"), key="evaluate_option")
@@ -1204,10 +1204,9 @@ def main():
             st.warning("Nenhum modelo carregado ou treinado. Por favor, carregue um modelo existente ou treine um novo modelo.")
             # Opção para carregar um modelo existente
             model_file_eval = st.file_uploader("Faça upload do arquivo do modelo (.pt ou .pth)", type=["pt", "pth"], key="model_file_uploader_eval")
-            if model_file_eval is not None:
-                num_classes_eval = st.number_input("Número de Classes:", min_value=2, step=1, key="num_classes_eval")
-                model_name_eval = st.selectbox("Modelo Pré-treinado:", options=['ResNet18', 'ResNet50', 'DenseNet121'], key="model_name_eval")
-                model_eval = get_model(model_name_eval, num_classes_eval, dropout_p=0.5, fine_tune=False)
+            if model_file_eval is not None and num_classes > 0:
+                # Carregar o modelo
+                model_eval = get_model(model_name, num_classes, dropout_p=0.5, fine_tune=False)
                 if model_eval is None:
                     st.error("Erro ao carregar o modelo.")
                     return
@@ -1215,7 +1214,7 @@ def main():
                     state_dict = torch.load(model_file_eval, map_location=device)
                     model_eval.load_state_dict(state_dict)
                     st.session_state['model'] = model_eval
-                    st.session_state['trained_model_name'] = model_name_eval  # Armazena o nome do modelo treinado
+                    st.session_state['trained_model_name'] = model_name  # Armazena o nome do modelo treinado
                     st.success("Modelo carregado com sucesso!")
                 except Exception as e:
                     st.error(f"Erro ao carregar o modelo: {e}")
@@ -1238,13 +1237,13 @@ def main():
             if image_file is not None:
                 try:
                     image = Image.open(image_file).convert("RGB")
-                    st.image(image, caption="Imagem para Avaliação", use_column_width=True)
+                    st.image(image, caption="Imagem para Avaliação", use_container_width=True)
                     if st.button("Avaliar Imagem", key="evaluate_image_button"):
                         class_name, confidence = evaluate_image(st.session_state['model'], image, st.session_state['classes'])
                         st.write(f"**Classe Predita:** {class_name}")
                         st.write(f"**Confiança:** {confidence:.4f}")
                         # Visualizar ativações
-                        visualize_activations(st.session_state['model'], image, st.session_state['classes'], st.session_state['trained_model_name'])
+                        visualize_activations(st.session_state['model'], image, st.session_state['classes'], st.session_state.get('trained_model_name', ''))
                 except Exception as e:
                     st.error(f"Erro ao processar a imagem: {e}")
     else:

@@ -834,13 +834,12 @@ def evaluate_image(model, image, classes):
     """
     model.eval()
     image_tensor = test_transforms(image).unsqueeze(0).to(device)
-    with torch.no_grad():
-        output = model(image_tensor)
-        probabilities = torch.nn.functional.softmax(output, dim=1)
-        confidence, predicted = torch.max(probabilities, 1)
-        class_idx = predicted.item()
-        class_name = classes[class_idx]
-        return class_name, confidence.item()
+    output = model(image_tensor)
+    probabilities = torch.nn.functional.softmax(output, dim=1)
+    confidence, predicted = torch.max(probabilities, 1)
+    class_idx = predicted.item()
+    class_name = classes[class_idx]
+    return class_name, confidence.item()
 
 
 def visualize_activations(model, image, class_names, model_name):
@@ -895,6 +894,9 @@ def visualize_activations(model, image, class_names, model_name):
     # Exibir as imagens com o Streamlit
     st.pyplot(fig)
     plt.close(fig)  # Fechar a figura para liberar memória
+
+    # Limpar os hooks após a visualização
+    cam_extractor.clear_hooks()
 
 
 def main():

@@ -31,7 +31,6 @@ from datetime import datetime  # Importação para data e hora
 
 # Importações adicionais para análises estatísticas
 import scipy.stats as stats
-import statsmodels.api as sm
 from statsmodels.stats.multicomp import pairwise_tukeyhsd
 
 # Supressão dos avisos relacionados ao torch.classes
@@ -574,10 +573,7 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
             plt.close(fig_acc)  # Fechar a figura para liberar memória
 
             # Botão para limpar o histórico com chave única
-            if model_id is not None:
-                limpar_key = f"limpar_historico_{model_id}_run_{run_id}_epoch_{epoch}"
-            else:
-                limpar_key = f"limpar_historico_run_{run_id}_epoch_{epoch}"
+            limpar_key = f"limpar_historico_{model_id}_run_{run_id}_epoch_{epoch}"
             if st.button("Limpar Histórico", key=limpar_key):
                 st.session_state.train_losses = []
                 st.session_state.valid_losses = []
@@ -874,6 +870,11 @@ def visualize_activations(model, image, class_names, model_name):
         st.error("Modelo não suportado para Grad-CAM.")
         return
 
+    # Importar pacotes necessários para Grad-CAM
+    from torchcam.methods import SmoothGradCAMpp
+    from torchvision.transforms.functional import to_pil_image
+    from torchcam.utils import overlay_mask
+
     # Criar o objeto CAM usando torchcam
     cam_extractor = SmoothGradCAMpp(model, target_layer=target_layer)
 
@@ -997,6 +998,10 @@ def main():
     # Lista para armazenar as métricas de todos os modelos
     all_model_metrics = []
 
+    # Inicializar 'all_model_metrics' no session_state
+    if 'all_model_metrics' not in st.session_state:
+        st.session_state.all_model_metrics = []
+
     # Uploader de arquivo ZIP fora do botão para garantir que o arquivo seja carregado antes do treinamento
     zip_file = st.file_uploader("Upload do arquivo ZIP com as imagens", type=["zip"], key="zip_file_uploader_main_multiple")
 
@@ -1069,26 +1074,26 @@ def main():
             st.write(f"**Métrica: {metric}**")
             st.write("**Tamanhos dos Grupos (Modelos):**")
             st.write(group_sizes)
-            if (group_sizes >= 2).all():
+            if len(group_sizes) >= 2 and (group_sizes >= 2).all():
                 # Agrupar as métricas por modelo
                 groups = [group[1][metric].tolist() for group in data.groupby('Model')]
                 anova_result = stats.f_oneway(*groups)
                 st.write(f"**ANOVA Result:** F-statistic = {anova_result.statistic:.4f}, p-value = {anova_result.pvalue:.4f}")
             else:
-                st.write(f"**{metric}:** ANOVA não pode ser realizada. Cada modelo deve ter pelo menos duas observações.")
+                st.write(f"**{metric}:** ANOVA não pode ser realizada. É necessário pelo menos dois modelos com pelo menos duas observações cada.")
 
         # Realizar Teste Tukey HSD para Cada Métrica
         st.subheader("Teste Post-Hoc Tukey HSD para as Métricas de Desempenho")
         for metric in ['Accuracy', 'Precision', 'Recall', 'F1_Score', 'ROC_AUC']:
             data = metrics_df[['Model', metric]].dropna()
             group_sizes = data.groupby('Model').size()
-            if (group_sizes >= 2).all():
+            if len(group_sizes) >= 2 and (group_sizes >= 2).all():
                 # Supondo que cada modelo seja um grupo distinto
                 tukey = pairwise_tukeyhsd(endog=data[metric], groups=data['Model'], alpha=0.05)
                 st.write(f"**{metric}:**")
                 st.text(tukey.summary())
             else:
-                st.write(f"**{metric}:** Teste Tukey HSD não pode ser realizado. Cada modelo deve ter pelo menos duas observações.")
+                st.write(f"**{metric}:** Teste Tukey HSD não pode ser realizado. É necessário pelo menos dois modelos com pelo menos duas observações cada.")
 
     # Opções de carregamento do modelo
     st.header("Opções de Carregamento do Modelo")

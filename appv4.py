@@ -575,9 +575,9 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
 
             # Botão para limpar o histórico com chave única
             if model_id is not None:
-                limpar_key = f"limpar_historico_model_{model_id}_epoch_{epoch}"
+                limpar_key = f"limpar_historico_{model_id}_run_{run_id}_epoch_{epoch}"
             else:
-                limpar_key = f"limpar_historico_epoch_{epoch}"
+                limpar_key = f"limpar_historico_run_{run_id}_epoch_{epoch}"
             if st.button("Limpar Histórico", key=limpar_key):
                 st.session_state.train_losses = []
                 st.session_state.valid_losses = []
@@ -735,6 +735,181 @@ def compute_metrics(model, dataloader, classes):
         'f1_score': f1_score,
         'roc_auc': roc_auc
     }
+
+
+def error_analysis(model, dataloader, classes):
+    """
+    Realiza análise de erros mostrando algumas imagens mal classificadas.
+    """
+    model.eval()
+    misclassified_images = []
+    misclassified_labels = []
+    misclassified_preds = []
+
+    with torch.no_grad():
+        for inputs, labels in dataloader:
+            inputs = inputs.to(device)
+            labels = labels.to(device)
+            outputs = model(inputs)
+            _, preds = torch.max(outputs, 1)
+
+            incorrect = preds != labels
+            if incorrect.any():
+                misclassified_images.extend(inputs[incorrect].cpu())
+                misclassified_labels.extend(labels[incorrect].cpu())
+                misclassified_preds.extend(preds[incorrect].cpu())
+                if len(misclassified_images) >= 5:
+                    break
+
+    if misclassified_images:
+        st.write("Algumas imagens mal classificadas:")
+        fig, axes = plt.subplots(1, min(5, len(misclassified_images)), figsize=(15, 3))
+        for i in range(min(5, len(misclassified_images))):
+            image = misclassified_images[i]
+            image = image.permute(1, 2, 0).numpy()
+            axes[i].imshow(image)
+            axes[i].set_title(f"V: {classes[misclassified_labels[i]]}\nP: {classes[misclassified_preds[i]]}")
+            axes[i].axis('off')
+        st.pyplot(fig)
+        plt.close(fig)  # Fechar a figura para liberar memória
+    else:
+        st.write("Nenhuma imagem mal classificada encontrada.")
+
+
+def perform_clustering(model, dataloader, classes):
+    """
+    Realiza a extração de features e aplica algoritmos de clusterização.
+    """
+    # Extrair features usando o modelo pré-treinado
+    features = []
+    labels = []
+
+    # Remover a última camada (classificador)
+    if isinstance(model, nn.Sequential):
+        model_feat = model
+    else:
+        model_feat = nn.Sequential(*list(model.children())[:-1])
+    model_feat.eval()
+    model_feat.to(device)
+
+    with torch.no_grad():
+        for inputs, label in dataloader:
+            inputs = inputs.to(device)
+            output = model_feat(inputs)
+            output = output.view(output.size(0), -1)
+            features.append(output.cpu().numpy())
+            labels.extend(label.numpy())
+
+    features = np.vstack(features)
+    labels = np.array(labels)
+
+    # Redução de dimensionalidade com PCA
+    pca = PCA(n_components=2)
+    features_2d = pca.fit_transform(features)
+
+    # Clusterização com KMeans
+    kmeans = KMeans(n_clusters=len(classes), random_state=42)
+    clusters_kmeans = kmeans.fit_predict(features)
+
+    # Clusterização Hierárquica
+    agglo = AgglomerativeClustering(n_clusters=len(classes))
+    clusters_agglo = agglo.fit_predict(features)
+
+    # Plotagem dos resultados
+    fig, ax = plt.subplots(1, 2, figsize=(14, 6))
+
+    # Gráfico KMeans
+    scatter = ax[0].scatter(features_2d[:, 0], features_2d[:, 1], c=clusters_kmeans, cmap='viridis')
+    legend1 = ax[0].legend(*scatter.legend_elements(), title="Clusters")
+    ax[0].add_artist(legend1)
+    ax[0].set_title('Clusterização com KMeans')
+
+    # Gráfico Agglomerative Clustering
+    scatter = ax[1].scatter(features_2d[:, 0], features_2d[:, 1], c=clusters_agglo, cmap='viridis')
+    legend1 = ax[1].legend(*scatter.legend_elements(), title="Clusters")
+    ax[1].add_artist(legend1)
+    ax[1].set_title('Clusterização Hierárquica')
+
+    st.pyplot(fig)
+    plt.close(fig)  # Fechar a figura para liberar memória
+
+    # Métricas de Avaliação
+    ari_kmeans = adjusted_rand_score(labels, clusters_kmeans)
+    nmi_kmeans = normalized_mutual_info_score(labels, clusters_kmeans)
+    ari_agglo = adjusted_rand_score(labels, clusters_agglo)
+    nmi_agglo = normalized_mutual_info_score(labels, clusters_agglo)
+
+    st.write(f"**KMeans** - ARI: {ari_kmeans:.4f}, NMI: {nmi_kmeans:.4f}")
+    st.write(f"**Agglomerative Clustering** - ARI: {ari_agglo:.4f}, NMI: {nmi_agglo:.4f}")
+
+
+def evaluate_image(model, image, classes):
+    """
+    Avalia uma única imagem e retorna a classe predita e a confiança.
+    """
+    model.eval()
+    image_tensor = test_transforms(image).unsqueeze(0).to(device)
+    with torch.no_grad():
+        output = model(image_tensor)
+        probabilities = torch.nn.functional.softmax(output, dim=1)
+        confidence, predicted = torch.max(probabilities, 1)
+        class_idx = predicted.item()
+        class_name = classes[class_idx]
+        return class_name, confidence.item()
+
+
+def visualize_activations(model, image, class_names, model_name):
+    """
+    Visualiza as ativações na imagem usando Grad-CAM.
+    """
+    model.eval()  # Coloca o modelo em modo de avaliação
+    input_tensor = test_transforms(image).unsqueeze(0).to(device)
+
+    # Verificar se o modelo é suportado
+    if model_name.startswith('ResNet'):
+        target_layer = 'layer4'
+    elif model_name.startswith('DenseNet'):
+        target_layer = 'features.denseblock4'
+    else:
+        st.error("Modelo não suportado para Grad-CAM.")
+        return
+
+    # Criar o objeto CAM usando torchcam
+    cam_extractor = SmoothGradCAMpp(model, target_layer=target_layer)
+
+    # Ativar Grad-CAM
+    with torch.set_grad_enabled(True):
+        out = model(input_tensor)  # Faz a previsão
+        probabilities = torch.nn.functional.softmax(out, dim=1)
+        confidence, pred = torch.max(probabilities, 1)  # Obtém a classe predita
+        pred_class = pred.item()
+
+        # Gerar o mapa de ativação
+        activation_map = cam_extractor(pred_class, out)
+
+    # Converter o mapa de ativação para PIL Image
+    activation_map = activation_map[0]
+    result = overlay_mask(to_pil_image(input_tensor.squeeze().cpu()), to_pil_image(activation_map.squeeze(), mode='F'), alpha=0.5)
+
+    # Converter a imagem para array NumPy
+    image_np = np.array(image)
+
+    # Exibir as imagens: Imagem Original e Grad-CAM
+    fig, ax = plt.subplots(1, 2, figsize=(10, 5))
+
+    # Imagem original
+    ax[0].imshow(image_np)
+    ax[0].set_title('Imagem Original')
+    ax[0].axis('off')
+
+    # Imagem com Grad-CAM
+    ax[1].imshow(result)
+    ax[1].set_title('Grad-CAM')
+    ax[1].axis('off')
+
+    # Exibir as imagens com o Streamlit
+    st.pyplot(fig)
+    plt.close(fig)  # Fechar a figura para liberar memória
 
 
 def main():
@@ -972,7 +1147,7 @@ def main():
                     data_dir, num_classes, model_name, fine_tune,
                     epochs, learning_rate, batch_size, train_split,
                     valid_split, use_weighted_loss, l2_lambda, patience,
-                    model_id="single_model"  # Identificador único para modelo único
+                    model_id="single_model", run_id=1  # Identificador único para modelo único
                 )
 
                 if model_data is None:

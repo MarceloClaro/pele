@@ -1244,7 +1244,7 @@ def main():
                         st.write(f"**Classe Predita:** {class_name}")
                         st.write(f"**Confiança:** {confidence:.4f}")
                         # Visualizar ativações
-                        visualize_activations(st.session_state['model'], image, st.session_state['classes'])
+                        visualize_activations(st.session_state['model'], image, st.session_state['classes'], st.session_state['trained_model_name'])
                 except Exception as e:
                     st.error(f"Erro ao processar a imagem: {e}")
     else:

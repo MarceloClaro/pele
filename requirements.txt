@@ -1,6 +1,6 @@
 streamlit 
 torch 
-torchvision>=0.14 
+torchvision
 numpy 
 pandas 
 Pillow 

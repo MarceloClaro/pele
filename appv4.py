@@ -10,7 +10,7 @@ import seaborn as sns
 from PIL import Image, UnidentifiedImageError
 import torch
 from torch import nn, optim
-from torch.utils.data import DataLoader, random_split
+from torch.utils.data import DataLoader
 from torchvision import transforms, datasets
 from torchvision.models import resnet18, resnet50, densenet121
 from torchvision.models import ResNet18_Weights, ResNet50_Weights, DenseNet121_Weights
@@ -25,11 +25,6 @@ from sklearn.decomposition import PCA
 import streamlit as st
 import gc
 import logging
-import base64
-from torchcam.methods import SmoothGradCAMpp
-from torchcam.utils import overlay_mask
-from torchvision.transforms.functional import to_pil_image
-import cv2
 import io
 import warnings
 from datetime import datetime  # Importação para data e hora
@@ -327,11 +322,12 @@ def visualize_embeddings(df, class_names):
     plt.close()  # Fechar a figura para liberar memória
 
 
-def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_rate, batch_size, train_split, valid_split, use_weighted_loss, l2_lambda, patience, model_id=None):
+def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_rate, batch_size, train_split, valid_split, use_weighted_loss, l2_lambda, patience, model_id=None, run_id=1):
     """
     Função principal para treinamento do modelo de classificação.
+    Agora inclui um run_id para identificar múltiplas execuções por modelo.
     """
-    set_seed(42)
+    set_seed(42 + run_id)  # Variar a seed para diferentes execuções
 
     # Carregar o dataset original sem transformações
     try:
@@ -423,7 +419,7 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
 
     # Dataloaders
     g = torch.Generator()
-    g.manual_seed(42)
+    g.manual_seed(42 + run_id)  # Variar a seed para diferentes execuções
 
     if use_weighted_loss:
         targets = [full_dataset.targets[i] for i in train_indices]
@@ -471,7 +467,6 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
 
     # Treinamento
     for epoch in range(epochs):
-        # Remover a definição de seed dentro do loop para manter a aleatoriedade apropriada
         running_loss = 0.0
         running_corrects = 0
         model.train()
@@ -609,8 +604,8 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
         model.load_state_dict(best_model_wts)
 
     # Gráficos de Perda e Acurácia finais
-    plot_metrics(st.session_state.train_losses, st.session_state.valid_losses, 
-                st.session_state.train_accuracies, st.session_state.valid_accuracies)
+    plot_metrics(st.session_state.train_losses, st.session_state.valid_losses,
+                 st.session_state.train_accuracies, st.session_state.valid_accuracies)
 
     # Avaliação Final no Conjunto de Teste
     st.write("**Avaliação no Conjunto de Teste**")
@@ -619,6 +614,7 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
     # Armazenar as métricas
     model_metrics = {
         'Model': model_id if model_id else "Modelo",
+        'Run': run_id,
         'Accuracy': metrics['accuracy'],
         'Precision': metrics['precision'],
         'Recall': metrics['recall'],
@@ -741,181 +737,6 @@ def compute_metrics(model, dataloader, classes):
     }
 
 
-def error_analysis(model, dataloader, classes):
-    """
-    Realiza análise de erros mostrando algumas imagens mal classificadas.
-    """
-    model.eval()
-    misclassified_images = []
-    misclassified_labels = []
-    misclassified_preds = []
-
-    with torch.no_grad():
-        for inputs, labels in dataloader:
-            inputs = inputs.to(device)
-            labels = labels.to(device)
-            outputs = model(inputs)
-            _, preds = torch.max(outputs, 1)
-
-            incorrect = preds != labels
-            if incorrect.any():
-                misclassified_images.extend(inputs[incorrect].cpu())
-                misclassified_labels.extend(labels[incorrect].cpu())
-                misclassified_preds.extend(preds[incorrect].cpu())
-                if len(misclassified_images) >= 5:
-                    break
-
-    if misclassified_images:
-        st.write("Algumas imagens mal classificadas:")
-        fig, axes = plt.subplots(1, min(5, len(misclassified_images)), figsize=(15, 3))
-        for i in range(min(5, len(misclassified_images))):
-            image = misclassified_images[i]
-            image = image.permute(1, 2, 0).numpy()
-            axes[i].imshow(image)
-            axes[i].set_title(f"V: {classes[misclassified_labels[i]]}\nP: {classes[misclassified_preds[i]]}")
-            axes[i].axis('off')
-        st.pyplot(fig)
-        plt.close(fig)  # Fechar a figura para liberar memória
-    else:
-        st.write("Nenhuma imagem mal classificada encontrada.")
-
-
-def perform_clustering(model, dataloader, classes):
-    """
-    Realiza a extração de features e aplica algoritmos de clusterização.
-    """
-    # Extrair features usando o modelo pré-treinado
-    features = []
-    labels = []
-
-    # Remover a última camada (classificador)
-    if isinstance(model, nn.Sequential):
-        model_feat = model
-    else:
-        model_feat = nn.Sequential(*list(model.children())[:-1])
-    model_feat.eval()
-    model_feat.to(device)
-
-    with torch.no_grad():
-        for inputs, label in dataloader:
-            inputs = inputs.to(device)
-            output = model_feat(inputs)
-            output = output.view(output.size(0), -1)
-            features.append(output.cpu().numpy())
-            labels.extend(label.numpy())
-
-    features = np.vstack(features)
-    labels = np.array(labels)
-
-    # Redução de dimensionalidade com PCA
-    pca = PCA(n_components=2)
-    features_2d = pca.fit_transform(features)
-
-    # Clusterização com KMeans
-    kmeans = KMeans(n_clusters=len(classes), random_state=42)
-    clusters_kmeans = kmeans.fit_predict(features)
-
-    # Clusterização Hierárquica
-    agglo = AgglomerativeClustering(n_clusters=len(classes))
-    clusters_agglo = agglo.fit_predict(features)
-
-    # Plotagem dos resultados
-    fig, ax = plt.subplots(1, 2, figsize=(14, 6))
-
-    # Gráfico KMeans
-    scatter = ax[0].scatter(features_2d[:, 0], features_2d[:, 1], c=clusters_kmeans, cmap='viridis')
-    legend1 = ax[0].legend(*scatter.legend_elements(), title="Clusters")
-    ax[0].add_artist(legend1)
-    ax[0].set_title('Clusterização com KMeans')
-
-    # Gráfico Agglomerative Clustering
-    scatter = ax[1].scatter(features_2d[:, 0], features_2d[:, 1], c=clusters_agglo, cmap='viridis')
-    legend1 = ax[1].legend(*scatter.legend_elements(), title="Clusters")
-    ax[1].add_artist(legend1)
-    ax[1].set_title('Clusterização Hierárquica')
-
-    st.pyplot(fig)
-    plt.close(fig)  # Fechar a figura para liberar memória
-
-    # Métricas de Avaliação
-    ari_kmeans = adjusted_rand_score(labels, clusters_kmeans)
-    nmi_kmeans = normalized_mutual_info_score(labels, clusters_kmeans)
-    ari_agglo = adjusted_rand_score(labels, clusters_agglo)
-    nmi_agglo = normalized_mutual_info_score(labels, clusters_agglo)
-
-    st.write(f"**KMeans** - ARI: {ari_kmeans:.4f}, NMI: {nmi_kmeans:.4f}")
-    st.write(f"**Agglomerative Clustering** - ARI: {ari_agglo:.4f}, NMI: {nmi_agglo:.4f}")
-
-
-def evaluate_image(model, image, classes):
-    """
-    Avalia uma única imagem e retorna a classe predita e a confiança.
-    """
-    model.eval()
-    image_tensor = test_transforms(image).unsqueeze(0).to(device)
-    with torch.no_grad():
-        output = model(image_tensor)
-        probabilities = torch.nn.functional.softmax(output, dim=1)
-        confidence, predicted = torch.max(probabilities, 1)
-        class_idx = predicted.item()
-        class_name = classes[class_idx]
-        return class_name, confidence.item()
-
-
-def visualize_activations(model, image, class_names, model_name):
-    """
-    Visualiza as ativações na imagem usando Grad-CAM.
-    """
-    model.eval()  # Coloca o modelo em modo de avaliação
-    input_tensor = test_transforms(image).unsqueeze(0).to(device)
-
-    # Verificar se o modelo é suportado
-    if model_name.startswith('ResNet'):
-        target_layer = 'layer4'
-    elif model_name.startswith('DenseNet'):
-        target_layer = 'features.denseblock4'
-    else:
-        st.error("Modelo não suportado para Grad-CAM.")
-        return
-
-    # Criar o objeto CAM usando torchcam
-    cam_extractor = SmoothGradCAMpp(model, target_layer=target_layer)
-
-    # Ativar Grad-CAM
-    with torch.set_grad_enabled(True):
-        out = model(input_tensor)  # Faz a previsão
-        probabilities = torch.nn.functional.softmax(out, dim=1)
-        confidence, pred = torch.max(probabilities, 1)  # Obtém a classe predita
-        pred_class = pred.item()
-
-        # Gerar o mapa de ativação
-        activation_map = cam_extractor(pred_class, out)
-
-    # Converter o mapa de ativação para PIL Image
-    activation_map = activation_map[0]
-    result = overlay_mask(to_pil_image(input_tensor.squeeze().cpu()), to_pil_image(activation_map.squeeze(), mode='F'), alpha=0.5)
-
-    # Converter a imagem para array NumPy
-    image_np = np.array(image)
-
-    # Exibir as imagens: Imagem Original e Grad-CAM
-    fig, ax = plt.subplots(1, 2, figsize=(10, 5))
-
-    # Imagem original
-    ax[0].imshow(image_np)
-    ax[0].set_title('Imagem Original')
-    ax[0].axis('off')
-
-    # Imagem com Grad-CAM
-    ax[1].imshow(result)
-    ax[1].set_title('Grad-CAM')
-    ax[1].axis('off')
-
-    # Exibir as imagens com o Streamlit
-    st.pyplot(fig)
-    plt.close(fig)  # Fechar a figura para liberar memória
-
-
 def main():
     # Definir o caminho do ícone
     icon_path = "logo.png"  # Verifique se o arquivo logo.png está no diretório correto
@@ -968,7 +789,7 @@ def main():
     l2_lambda = st.sidebar.number_input("L2 Regularization (Weight Decay):", min_value=0.0, max_value=0.1, value=0.01, step=0.01, key="l2_lambda")
     patience = st.sidebar.number_input("Paciência para Early Stopping:", min_value=1, max_value=10, value=3, step=1, key="patience")
     use_weighted_loss = st.sidebar.checkbox("Usar Perda Ponderada para Classes Desbalanceadas", value=False, key="use_weighted_loss")
-    # st.sidebar.image("eu.ico", width=80)  # Certifique-se de que o arquivo 'eu.ico' existe ou remova esta linha
+
     st.sidebar.write("""
     Produzido pelo:
 
@@ -996,6 +817,7 @@ def main():
 
     # Configurações para múltiplos modelos
     num_models = st.number_input("Número de Modelos a Treinar:", min_value=1, max_value=10, value=3, step=1, key="num_models")
+    runs_per_model = st.number_input("Número de Execuções por Modelo:", min_value=1, max_value=10, value=3, step=1, key="runs_per_model")
 
     # Lista para armazenar as métricas de todos os modelos
     all_model_metrics = []
@@ -1019,24 +841,23 @@ def main():
                 data_dir = temp_dir
 
                 for i in range(num_models):
-                    st.write(f"**Treinando Modelo {i+1}/{num_models}**")
-                    # Pode-se variar configurações aqui, por exemplo, escolher modelos diferentes ou variar hiperparâmetros
-                    # Para simplificação, treinaremos o mesmo tipo de modelo com a mesma configuração
-                    model_id = f"model_{i+1}"
-                    model_data = train_model(
-                        data_dir, num_classes, model_name, fine_tune,
-                        epochs, learning_rate, batch_size, train_split,
-                        valid_split, use_weighted_loss, l2_lambda, patience,
-                        model_id=model_id  # Passar o ID do modelo para chaves únicas
-                    )
+                    for run in range(1, runs_per_model + 1):
+                        st.write(f"**Treinando Modelo {i+1}/{num_models} - Execução {run}/{runs_per_model}**")
+                        model_id = f"model_{i+1}"
+                        model_data = train_model(
+                            data_dir, num_classes, model_name, fine_tune,
+                            epochs, learning_rate, batch_size, train_split,
+                            valid_split, use_weighted_loss, l2_lambda, patience,
+                            model_id=model_id, run_id=run  # Passar o run_id para métricas distintas
+                        )
 
-                    if model_data is None:
-                        st.error(f"Erro no treinamento do Modelo {i+1}.")
-                        continue
+                        if model_data is None:
+                            st.error(f"Erro no treinamento do Modelo {i+1}, Execução {run}.")
+                            continue
 
-                    model, classes, metrics = model_data
-                    all_model_metrics.append(metrics)
-                    st.success(f"Treinamento do Modelo {i+1} concluído!")
+                        model, classes, metrics = model_data
+                        all_model_metrics.append(metrics)
+                        st.success(f"Treinamento do Modelo {i+1}, Execução {run} concluído!")
 
                 # Limpar o diretório temporário
                 shutil.rmtree(temp_dir)
@@ -1068,13 +889,16 @@ def main():
         # Realizar ANOVA para Cada Métrica
         st.subheader("Análise de Variância (ANOVA) para as Métricas de Desempenho")
         for metric in ['Accuracy', 'Precision', 'Recall', 'F1_Score', 'ROC_AUC']:
-            data = metrics_df[['Model', metric]].dropna()
+            data = metrics_df[['Model', 'Run', metric]].dropna()
             group_sizes = data.groupby('Model').size()
+            st.write(f"**Métrica: {metric}**")
+            st.write("**Tamanhos dos Grupos (Modelos):**")
+            st.write(group_sizes)
             if (group_sizes >= 2).all():
                 # Agrupar as métricas por modelo
                 groups = [group[1][metric].tolist() for group in data.groupby('Model')]
                 anova_result = stats.f_oneway(*groups)
-                st.write(f"**{metric}:** F-statistic = {anova_result.statistic:.4f}, p-value = {anova_result.pvalue:.4f}")
+                st.write(f"**ANOVA Result:** F-statistic = {anova_result.statistic:.4f}, p-value = {anova_result.pvalue:.4f}")
             else:
                 st.write(f"**{metric}:** ANOVA não pode ser realizada. Cada modelo deve ter pelo menos duas observações.")
 

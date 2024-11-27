@@ -105,6 +105,12 @@ class CustomDataset(torch.utils.data.Dataset):
         return image, label
 
 
+# Transformação personalizada para máscaras de segmentação
+class MaskToTensor:
+    def __call__(self, mask):
+        return torch.as_tensor(np.array(mask), dtype=torch.long)
+
+
 # Dataset personalizado para segmentação
 class SegmentationDataset(torch.utils.data.Dataset):
     def __init__(self, images_dir, masks_dir, transform=None, target_transform=None):
@@ -114,6 +120,15 @@ class SegmentationDataset(torch.utils.data.Dataset):
         self.target_transform = target_transform
         self.images = sorted(os.listdir(images_dir))
         self.masks = sorted(os.listdir(masks_dir))
+
+        # Verificação para garantir que cada imagem tenha uma máscara correspondente
+        if len(self.images) != len(self.masks):
+            raise ValueError("Número de imagens e máscaras não correspondem.")
+
+        # Opcional: Verificar correspondência de nomes
+        for img, mask in zip(self.images, self.masks):
+            if not img.split('.')[0] == mask.split('.')[0]:
+                raise ValueError(f"Imagem {img} e máscara {mask} não correspondem.")
 
     def __len__(self):
         return len(self.images)
@@ -246,8 +261,14 @@ def get_segmentation_model(num_classes, fine_tune=False):
             param.requires_grad = False
 
     # Ajustar a última camada para o número de classes do usuário
-    model.classifier[4] = nn.Conv2d(512, num_classes, kernel_size=1)
-    model.aux_classifier[4] = nn.Conv2d(256, num_classes, kernel_size=1)
+    # Correção: substituir o índice correto das camadas convolucionais finais
+    try:
+        model.classifier[6] = nn.Conv2d(256, num_classes, kernel_size=1)
+        model.aux_classifier[6] = nn.Conv2d(128, num_classes, kernel_size=1)
+    except IndexError:
+        st.error("Erro ao ajustar as camadas do modelo de segmentação. Verifique a arquitetura do modelo.")
+        return None
+
     model = model.to(device)
     return model
 
@@ -377,7 +398,11 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
     set_seed(42)
 
     # Carregar o dataset original sem transformações
-    full_dataset = datasets.ImageFolder(root=data_dir)
+    try:
+        full_dataset = datasets.ImageFolder(root=data_dir)
+    except Exception as e:
+        st.error(f"Erro ao carregar o dataset: {e}")
+        return None
 
     # Verificar se há classes suficientes
     if len(full_dataset.classes) < num_classes:
@@ -510,7 +535,7 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
 
     # Treinamento
     for epoch in range(epochs):
-        set_seed(42 + epoch)
+        # Remover a definição de seed dentro do loop para manter a aleatoriedade apropriada
         running_loss = 0.0
         running_corrects = 0
         model.train()
@@ -660,24 +685,9 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
         'F1_Score': metrics['f1_score'],
         'ROC_AUC': metrics['roc_auc']
     }
-    st.session_state.all_model_metrics.append(model_metrics)
 
-    # Análise de Erros
-    st.write("**Análise de Erros**")
-    error_analysis(model, test_loader, full_dataset.classes)
-
-    # **Clusterização e Análise Comparativa**
-    st.write("**Análise de Clusterização**")
-    perform_clustering(model, test_loader, full_dataset.classes)
-
-    # Liberar memória
-    del train_loader, valid_loader
-    gc.collect()
-
-    # Armazenar o modelo e as classes no st.session_state
-    st.session_state['model'] = model
-    st.session_state['classes'] = full_dataset.classes
-    st.session_state['trained_model_name'] = model_name  # Armazena o nome do modelo treinado
+    # **Correção Importante:** Remover a linha que adiciona diretamente ao session_state
+    # st.session_state.all_model_metrics.append(model_metrics)  # Removido
 
     return model, full_dataset.classes, model_metrics
 
@@ -767,14 +777,17 @@ def compute_metrics(model, dataloader, classes):
     else:
         # Multiclasse
         binarized_labels = label_binarize(all_labels, classes=range(len(classes)))
-        roc_auc = roc_auc_score(binarized_labels, np.array(all_probs), average='weighted', multi_class='ovr')
-        st.write(f"AUC-ROC Média Ponderada: {roc_auc:.4f}")
+        if binarized_labels.shape[1] > 1:
+            roc_auc = roc_auc_score(binarized_labels, np.array(all_probs), average='weighted', multi_class='ovr')
+            st.write(f"AUC-ROC Média Ponderada: {roc_auc:.4f}")
+        else:
+            st.write("AUC-ROC não pode ser calculada para uma única classe.")
 
     # Cálculo das métricas de acurácia, precisão, recall e F1-score
     accuracy = np.mean(np.array(all_preds) == np.array(all_labels))
-    precision = np.mean([report[cls]['precision'] for cls in classes])
-    recall = np.mean([report[cls]['recall'] for cls in classes])
-    f1_score = np.mean([report[cls]['f1-score'] for cls in classes])
+    precision = np.nanmean([report[cls]['precision'] for cls in classes])
+    recall = np.nanmean([report[cls]['recall'] for cls in classes])
+    f1_score = np.nanmean([report[cls]['f1-score'] for cls in classes])
 
     return {
         'accuracy': accuracy,
@@ -1065,32 +1078,38 @@ def main():
     if segmentation_option == "Utilizar modelo pré-treinado":
         num_classes_segmentation = st.number_input("Número de Classes para Segmentação (Modelo Pré-treinado):", min_value=1, step=1, value=21)
         segmentation_model = get_segmentation_model(num_classes=num_classes_segmentation)
-        st.write("Modelo de segmentação pré-treinado carregado.")
+        if segmentation_model is not None:
+            st.write("Modelo de segmentação pré-treinado carregado.")
+        else:
+            st.error("Erro ao carregar o modelo de segmentação pré-treinado.")
     elif segmentation_option == "Treinar novo modelo de segmentação":
         st.write("Treinamento do modelo de segmentação com seu próprio conjunto de dados.")
         num_classes_segmentation = st.number_input("Número de Classes para Segmentação:", min_value=1, step=1)
         # Upload do conjunto de dados de segmentação
         segmentation_zip = st.file_uploader("Faça upload de um arquivo ZIP contendo as imagens e máscaras de segmentação", type=["zip"])
         if segmentation_zip is not None:
-            temp_seg_dir = tempfile.mkdtemp()
-            zip_path = os.path.join(temp_seg_dir, "segmentation.zip")
-            with open(zip_path, "wb") as f:
-                f.write(segmentation_zip.read())
-            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                zip_ref.extractall(temp_seg_dir)
+            try:
+                temp_seg_dir = tempfile.mkdtemp()
+                zip_path = os.path.join(temp_seg_dir, "segmentation.zip")
+                with open(zip_path, "wb") as f:
+                    f.write(segmentation_zip.read())
+                with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                    zip_ref.extractall(temp_seg_dir)
 
-            # Espera-se que as imagens estejam em 'images/' e as máscaras em 'masks/' dentro do ZIP
-            images_dir = os.path.join(temp_seg_dir, 'images')
-            masks_dir = os.path.join(temp_seg_dir, 'masks')
+                # Espera-se que as imagens estejam em 'images/' e as máscaras em 'masks/' dentro do ZIP
+                images_dir = os.path.join(temp_seg_dir, 'images')
+                masks_dir = os.path.join(temp_seg_dir, 'masks')
 
-            if os.path.exists(images_dir) and os.path.exists(masks_dir):
-                # Treinar o modelo de segmentação
-                st.write("Iniciando o treinamento do modelo de segmentação...")
-                segmentation_model = train_segmentation_model(images_dir, masks_dir, num_classes_segmentation)
-                if segmentation_model is not None:
-                    st.success("Treinamento do modelo de segmentação concluído!")
-            else:
-                st.error("Estrutura de diretórios inválida no arquivo ZIP. Certifique-se de que as imagens estão em 'images/' e as máscaras em 'masks/'.")
+                if os.path.exists(images_dir) and os.path.exists(masks_dir):
+                    # Treinar o modelo de segmentação
+                    st.write("Iniciando o treinamento do modelo de segmentação...")
+                    segmentation_model = train_segmentation_model(images_dir, masks_dir, num_classes_segmentation)
+                    if segmentation_model is not None:
+                        st.success("Treinamento do modelo de segmentação concluído!")
+                else:
+                    st.error("Estrutura de diretórios inválida no arquivo ZIP. Certifique-se de que as imagens estão em 'images/' e as máscaras em 'masks/'.")
+            except Exception as e:
+                st.error(f"Erro durante o processamento do arquivo ZIP: {e}")
         else:
             st.warning("Aguardando o upload do conjunto de dados de segmentação.")
     else:
@@ -1141,13 +1160,16 @@ def main():
     # Lista para armazenar as métricas de todos os modelos
     all_model_metrics = []
 
+    # Uploader de arquivo ZIP fora do botão para garantir que o arquivo seja carregado antes do treinamento
+    zip_file = st.file_uploader("Upload do arquivo ZIP com as imagens", type=["zip"], key="zip_file_uploader_main_multiple")
+
     if st.button("Iniciar Treinamento Múltiplo"):
         if num_models < 1:
             st.error("Por favor, insira um número válido de modelos para treinar.")
+        elif zip_file is None:
+            st.error("Por favor, faça upload do arquivo ZIP com as imagens.")
         else:
-            # Carregar ou extrair os dados
-            zip_file = st.file_uploader("Upload do arquivo ZIP com as imagens", type=["zip"], key="zip_file_uploader")
-            if zip_file is not None:
+            try:
                 temp_dir = tempfile.mkdtemp()
                 zip_path = os.path.join(temp_dir, "uploaded.zip")
                 with open(zip_path, "wb") as f:
@@ -1179,8 +1201,8 @@ def main():
 
                 # Armazenar as métricas no session_state
                 st.session_state.all_model_metrics.extend(all_model_metrics)
-            else:
-                st.warning("Por favor, forneça os dados para treinamento.")
+            except Exception as e:
+                st.error(f"Erro durante o treinamento múltiplo: {e}")
 
     # Exibir as métricas coletadas
     if 'all_model_metrics' in st.session_state and len(st.session_state.all_model_metrics) > 0:
@@ -1206,7 +1228,7 @@ def main():
         for metric in ['Accuracy', 'Precision', 'Recall', 'F1_Score', 'ROC_AUC']:
             data = metrics_df[metric].dropna()
             if len(data) > 1:
-                anova_result = stats.f_oneway(data)
+                anova_result = stats.f_oneway(*[group for name, group in metrics_df.groupby('Model')[metric]])
                 st.write(f"**{metric}:** F-statistic = {anova_result.statistic:.4f}, p-value = {anova_result.pvalue:.4f}")
             else:
                 st.write(f"**{metric}:** ANOVA não pode ser realizada com menos de duas observações.")
@@ -1217,14 +1239,172 @@ def main():
             data = metrics_df[metric].dropna()
             if len(data) > 1:
                 # Supondo que cada modelo seja um grupo distinto
-                model_labels = [f"Modelo_{i+1}" for i in range(len(data))]
+                model_labels = metrics_df['Model']
                 tukey = pairwise_tukeyhsd(endog=data, groups=model_labels, alpha=0.05)
                 st.write(f"**{metric}:**")
                 st.text(tukey.summary())
             else:
                 st.write(f"**{metric}:** Teste Tukey HSD não pode ser realizado com menos de duas observações.")
 
-    # [Continue com o restante do código conforme necessário]
+
+    # Opções de carregamento do modelo
+    st.header("Opções de Carregamento do Modelo")
+
+    model_option = st.selectbox("Escolha uma opção:", ["Treinar um novo modelo", "Carregar um modelo existente"], key="model_option_main")
+    if model_option == "Carregar um modelo existente":
+        # Upload do modelo pré-treinado
+        model_file = st.file_uploader("Faça upload do arquivo do modelo (.pt ou .pth)", type=["pt", "pth"], key="model_file_uploader_main")
+        if model_file is not None and num_classes > 0:
+            # Carregar o modelo
+            model = get_model(model_name, num_classes, dropout_p=0.5, fine_tune=False)
+            if model is None:
+                st.error("Erro ao carregar o modelo.")
+                return
+
+            # Carregar os pesos do modelo
+            try:
+                state_dict = torch.load(model_file, map_location=device)
+                model.load_state_dict(state_dict)
+                st.session_state['model'] = model
+                st.session_state['trained_model_name'] = model_name  # Armazena o nome do modelo treinado
+                st.success("Modelo carregado com sucesso!")
+            except Exception as e:
+                st.error(f"Erro ao carregar o modelo: {e}")
+                return
+
+            # Carregar as classes
+            classes_file = st.file_uploader("Faça upload do arquivo com as classes (classes.txt)", type=["txt"], key="classes_file_uploader_main")
+            if classes_file is not None:
+                try:
+                    classes = classes_file.read().decode("utf-8").splitlines()
+                    st.session_state['classes'] = classes
+                    st.write(f"Classes carregadas: {classes}")
+                except Exception as e:
+                    st.error(f"Erro ao carregar as classes: {e}")
+            else:
+                st.error("Por favor, forneça o arquivo com as classes.")
+        else:
+            st.warning("Por favor, forneça o modelo e o número de classes.")
+
+    elif model_option == "Treinar um novo modelo":
+        # Upload do arquivo ZIP fora do botão para garantir que o arquivo seja carregado antes do treinamento
+        zip_file_train = st.file_uploader("Upload do arquivo ZIP com as imagens para treinamento", type=["zip"], key="zip_file_uploader_main_single")
+        if zip_file_train is not None and num_classes > 0 and train_split + valid_split <= 0.95:
+            temp_dir = tempfile.mkdtemp()
+            try:
+                zip_path = os.path.join(temp_dir, "uploaded.zip")
+                with open(zip_path, "wb") as f:
+                    f.write(zip_file_train.read())
+                with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                    zip_ref.extractall(temp_dir)
+                data_dir = temp_dir
+
+                st.write("Iniciando o treinamento supervisionado...")
+                model_data = train_model(
+                    data_dir, num_classes, model_name, fine_tune,
+                    epochs, learning_rate, batch_size, train_split,
+                    valid_split, use_weighted_loss, l2_lambda, patience
+                )
+
+                if model_data is None:
+                    st.error("Erro no treinamento do modelo.")
+                    shutil.rmtree(temp_dir)
+                    return
+
+                model, classes, metrics = model_data
+                # Armazenar o modelo e as classes no st.session_state
+                st.session_state['model'] = model
+                st.session_state['classes'] = classes
+                st.session_state['trained_model_name'] = model_name  # Armazena o nome do modelo treinado
+
+                st.success("Treinamento concluído!")
+
+                # Opção para baixar o modelo treinado
+                st.write("Faça o download do modelo treinado:")
+                buffer = io.BytesIO()
+                torch.save(model.state_dict(), buffer)
+                buffer.seek(0)
+                btn = st.download_button(
+                    label="Download do Modelo",
+                    data=buffer,
+                    file_name="modelo_treinado.pth",
+                    mime="application/octet-stream",
+                    key="download_model_button"
+                )
+
+                # Salvar as classes em um arquivo
+                classes_data = "\n".join(classes)
+                st.download_button(
+                    label="Download das Classes",
+                    data=classes_data,
+                    file_name="classes.txt",
+                    mime="text/plain",
+                    key="download_classes_button"
+                )
+
+            except Exception as e:
+                st.error(f"Erro durante o treinamento: {e}")
+            finally:
+                # Limpar o diretório temporário
+                shutil.rmtree(temp_dir)
+        else:
+            st.warning("Por favor, forneça os dados e as configurações corretas.")
+
+
+    # Avaliação de uma imagem individual
+    st.header("Avaliação de Imagem")
+    evaluate = st.radio("Deseja avaliar uma imagem?", ("Sim", "Não"), key="evaluate_option")
+    if evaluate == "Sim":
+        # Verificar se o modelo já foi carregado ou treinado
+        if 'model' not in st.session_state or 'classes' not in st.session_state:
+            st.warning("Nenhum modelo carregado ou treinado. Por favor, carregue um modelo existente ou treine um novo modelo.")
+            # Opção para carregar um modelo existente
+            model_file_eval = st.file_uploader("Faça upload do arquivo do modelo (.pt ou .pth)", type=["pt", "pth"], key="model_file_uploader_eval")
+            if model_file_eval is not None:
+                num_classes_eval = st.number_input("Número de Classes:", min_value=2, step=1, key="num_classes_eval")
+                model_name_eval = st.selectbox("Modelo Pré-treinado:", options=['ResNet18', 'ResNet50', 'DenseNet121'], key="model_name_eval")
+                model_eval = get_model(model_name_eval, num_classes_eval, dropout_p=0.5, fine_tune=False)
+                if model_eval is None:
+                    st.error("Erro ao carregar o modelo.")
+                    return
+                try:
+                    state_dict = torch.load(model_file_eval, map_location=device)
+                    model_eval.load_state_dict(state_dict)
+                    st.session_state['model'] = model_eval
+                    st.session_state['trained_model_name'] = model_name_eval  # Armazena o nome do modelo treinado
+                    st.success("Modelo carregado com sucesso!")
+                except Exception as e:
+                    st.error(f"Erro ao carregar o modelo: {e}")
+                    return
+
+                # Carregar as classes
+                classes_file_eval = st.file_uploader("Faça upload do arquivo com as classes (classes.txt)", type=["txt"], key="classes_file_uploader_eval")
+                if classes_file_eval is not None:
+                    try:
+                        classes_eval = classes_file_eval.read().decode("utf-8").splitlines()
+                        st.session_state['classes'] = classes_eval
+                        st.write(f"Classes carregadas: {classes_eval}")
+                    except Exception as e:
+                        st.error(f"Erro ao carregar as classes: {e}")
+                else:
+                    st.error("Por favor, forneça o arquivo com as classes.")
+        else:
+            # Se o modelo já estiver carregado ou treinado, permitir upload da imagem para avaliação
+            image_file = st.file_uploader("Faça upload de uma imagem para avaliação", type=["jpg", "jpeg", "png"], key="image_file_evaluate")
+            if image_file is not None:
+                try:
+                    image = Image.open(image_file).convert("RGB")
+                    st.image(image, caption="Imagem para Avaliação", use_column_width=True)
+                    if st.button("Avaliar Imagem", key="evaluate_image_button"):
+                        class_name, confidence = evaluate_image(st.session_state['model'], image, st.session_state['classes'])
+                        st.write(f"**Classe Predita:** {class_name}")
+                        st.write(f"**Confiança:** {confidence:.4f}")
+                        # Visualizar ativações
+                        visualize_activations(st.session_state['model'], image, st.session_state['classes'], st.session_state['trained_model_name'], segmentation_model, segmentation_option != "Não")
+                except Exception as e:
+                    st.error(f"Erro ao processar a imagem: {e}")
+    else:
+        st.write("Avaliação de imagem desativada.")
 
 
 def train_segmentation_model(images_dir, masks_dir, num_classes):
@@ -1242,12 +1422,15 @@ def train_segmentation_model(images_dir, masks_dir, num_classes):
         transforms.ToTensor(),
     ])
     target_transforms = transforms.Compose([
-        transforms.Resize((256, 256)),
-        transforms.ToTensor(),
+        MaskToTensor(),
     ])
 
     # Dataset
-    dataset = SegmentationDataset(images_dir, masks_dir, transform=input_transforms, target_transform=target_transforms)
+    try:
+        dataset = SegmentationDataset(images_dir, masks_dir, transform=input_transforms, target_transform=target_transforms)
+    except Exception as e:
+        st.error(f"Erro ao criar o dataset de segmentação: {e}")
+        return None
 
     # Dividir em treino e validação
     train_size = int(0.8 * len(dataset))
@@ -1263,10 +1446,12 @@ def train_segmentation_model(images_dir, masks_dir, num_classes):
 
     # Modelo
     model = get_segmentation_model(num_classes=num_classes, fine_tune=True)
+    if model is None:
+        return None
 
     # Otimizador e função de perda
     criterion = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+    optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=learning_rate)
 
     # Treinamento
     for epoch in range(num_epochs):
@@ -1275,7 +1460,7 @@ def train_segmentation_model(images_dir, masks_dir, num_classes):
 
         for inputs, masks in train_loader:
             inputs = inputs.to(device)
-            masks = masks.to(device).long().squeeze(1)  # Ajustar dimensões
+            masks = masks.to(device)
 
             optimizer.zero_grad()
             outputs = model(inputs)['out']
@@ -1294,7 +1479,7 @@ def train_segmentation_model(images_dir, masks_dir, num_classes):
         with torch.no_grad():
             for inputs, masks in val_loader:
                 inputs = inputs.to(device)
-                masks = masks.to(device).long().squeeze(1)
+                masks = masks.to(device)
 
                 outputs = model(inputs)['out']
                 loss = criterion(outputs, masks)

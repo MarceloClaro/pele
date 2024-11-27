@@ -14,7 +14,7 @@ from torch.utils.data import DataLoader, random_split
 from torchvision import transforms, datasets
 from torchvision.models import resnet18, resnet50, densenet121
 from torchvision.models import ResNet18_Weights, ResNet50_Weights, DenseNet121_Weights
-from torchvision.models.segmentation import fcn_resnet50, FCN_ResNet50_Weights
+from torchvision.models.segmentation import fcn_resnet50, FCN_ResNet50_Weights, FCNHead
 from sklearn.cluster import AgglomerativeClustering, KMeans
 from sklearn.metrics import (
     adjusted_rand_score, normalized_mutual_info_score,
@@ -261,12 +261,12 @@ def get_segmentation_model(num_classes, fine_tune=False):
             param.requires_grad = False
 
     # Ajustar a última camada para o número de classes do usuário
-    # Correção: substituir o índice correto das camadas convolucionais finais
     try:
-        model.classifier[6] = nn.Conv2d(256, num_classes, kernel_size=1)
-        model.aux_classifier[6] = nn.Conv2d(128, num_classes, kernel_size=1)
-    except IndexError:
-        st.error("Erro ao ajustar as camadas do modelo de segmentação. Verifique a arquitetura do modelo.")
+        # Substituir a camada inteira 'classifier' e 'aux_classifier' com novas instâncias de FCNHead
+        model.classifier = FCNHead(2048, num_classes)
+        model.aux_classifier = FCNHead(1024, num_classes)
+    except Exception as e:
+        st.error(f"Erro ao ajustar as camadas do modelo de segmentação: {e}")
         return None
 
     model = model.to(device)
@@ -289,7 +289,10 @@ def apply_transforms_and_get_embeddings(dataset, model, transform, batch_size=16
     augmented_images_list = []
 
     # Remover a última camada do modelo para extrair os embeddings
-    model_embedding = nn.Sequential(*list(model.children())[:-1])
+    if isinstance(model, nn.Sequential):
+        model_embedding = model
+    else:
+        model_embedding = nn.Sequential(*list(model.children())[:-1])
     model_embedding.eval()
     model_embedding.to(device)
 
@@ -334,15 +337,15 @@ def display_all_augmented_images(df, class_names, max_images=None):
         st.write(f"**Visualização das Primeiras {max_images} Imagens após Data Augmentation:**")
     else:
         st.write("**Visualização de Todas as Imagens após Data Augmentation:**")
-    
+
     num_images = len(df)
     if num_images == 0:
         st.write("Nenhuma imagem para exibir.")
         return
-    
+
     cols_per_row = 5  # Número de colunas por linha
     rows = (num_images + cols_per_row - 1) // cols_per_row  # Calcula o número de linhas necessárias
-    
+
     for row in range(rows):
         cols = st.columns(cols_per_row)
         for col in range(cols_per_row):
@@ -357,7 +360,7 @@ def display_all_augmented_images(df, class_names, max_images=None):
 def visualize_embeddings(df, class_names):
     """
     Reduz a dimensionalidade dos embeddings e os visualiza em 2D.
-    
+
     Args:
         df (pd.DataFrame): DataFrame contendo os embeddings e rótulos.
         class_names (list): Lista com os nomes das classes.
@@ -385,13 +388,13 @@ def visualize_embeddings(df, class_names):
     plt.legend(title='Classes', labels=class_names)
     plt.xlabel('Componente Principal 1')
     plt.ylabel('Componente Principal 2')
-    
+
     # Exibir no Streamlit
     st.pyplot(plt)
     plt.close()  # Fechar a figura para liberar memória
 
 
-def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_rate, batch_size, train_split, valid_split, use_weighted_loss, l2_lambda, patience):
+def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_rate, batch_size, train_split, valid_split, use_weighted_loss, l2_lambda, patience, model_id=None):
     """
     Função principal para treinamento do modelo de classificação.
     """
@@ -642,8 +645,12 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
             st.pyplot(fig_acc)
             plt.close(fig_acc)  # Fechar a figura para liberar memória
 
-            # Botão para limpar o histórico
-            if st.button("Limpar Histórico", key=f"limpar_historico_epoch_{epoch}"):
+            # Botão para limpar o histórico com chave única
+            if model_id is not None:
+                limpar_key = f"limpar_historico_model_{model_id}_epoch_{epoch}"
+            else:
+                limpar_key = f"limpar_historico_epoch_{epoch}"
+            if st.button("Limpar Histórico", key=limpar_key):
                 st.session_state.train_losses = []
                 st.session_state.valid_losses = []
                 st.session_state.train_accuracies = []
@@ -686,8 +693,11 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
         'ROC_AUC': metrics['roc_auc']
     }
 
-    # **Correção Importante:** Remover a linha que adiciona diretamente ao session_state
-    # st.session_state.all_model_metrics.append(model_metrics)  # Removido
+    # Adicionar as métricas ao session_state se model_id for fornecido
+    if model_id is not None:
+        if 'all_model_metrics' not in st.session_state:
+            st.session_state.all_model_metrics = []
+        st.session_state.all_model_metrics.append(model_metrics)
 
     return model, full_dataset.classes, model_metrics
 
@@ -1182,16 +1192,18 @@ def main():
                     st.write(f"**Treinando Modelo {i+1}/{num_models}**")
                     # Pode-se variar configurações aqui, por exemplo, escolher modelos diferentes ou variar hiperparâmetros
                     # Para simplificação, treinaremos o mesmo tipo de modelo com a mesma configuração
+                    model_id = f"model_{i+1}"
                     model_data = train_model(
                         data_dir, num_classes, model_name, fine_tune,
                         epochs, learning_rate, batch_size, train_split,
-                        valid_split, use_weighted_loss, l2_lambda, patience
+                        valid_split, use_weighted_loss, l2_lambda, patience,
+                        model_id=model_id  # Passar o ID do modelo para chaves únicas
                     )
-                    
+
                     if model_data is None:
                         st.error(f"Erro no treinamento do Modelo {i+1}.")
                         continue
-                    
+
                     model, classes, metrics = model_data
                     all_model_metrics.append(metrics)
                     st.success(f"Treinamento do Modelo {i+1} concluído!")
@@ -1209,7 +1221,7 @@ def main():
         st.header("Métricas de Desempenho de Todos os Modelos")
         metrics_df = pd.DataFrame(st.session_state.all_model_metrics)
         st.dataframe(metrics_df)
-        
+
         # Calcular Intervalos de Confiança para Cada Métrica
         st.subheader("Intervalos de Confiança para as Métricas de Desempenho")
         confidence_level = 0.95
@@ -1222,25 +1234,26 @@ def main():
                 st.write(f"**{metric}:** Apenas uma observação disponível.")
             else:
                 st.write(f"**{metric}:** Nenhum dado disponível.")
-        
+
         # Realizar ANOVA para Cada Métrica
         st.subheader("Análise de Variância (ANOVA) para as Métricas de Desempenho")
         for metric in ['Accuracy', 'Precision', 'Recall', 'F1_Score', 'ROC_AUC']:
             data = metrics_df[metric].dropna()
             if len(data) > 1:
-                anova_result = stats.f_oneway(*[group for name, group in metrics_df.groupby('Model')[metric]])
+                # Agrupar as métricas por modelo
+                groups = [group[1][metric].tolist() for group in metrics_df.groupby('Model')]
+                anova_result = stats.f_oneway(*groups)
                 st.write(f"**{metric}:** F-statistic = {anova_result.statistic:.4f}, p-value = {anova_result.pvalue:.4f}")
             else:
                 st.write(f"**{metric}:** ANOVA não pode ser realizada com menos de duas observações.")
-        
+
         # Realizar Teste Tukey HSD para Cada Métrica
         st.subheader("Teste Post-Hoc Tukey HSD para as Métricas de Desempenho")
         for metric in ['Accuracy', 'Precision', 'Recall', 'F1_Score', 'ROC_AUC']:
             data = metrics_df[metric].dropna()
             if len(data) > 1:
                 # Supondo que cada modelo seja um grupo distinto
-                model_labels = metrics_df['Model']
-                tukey = pairwise_tukeyhsd(endog=data, groups=model_labels, alpha=0.05)
+                tukey = pairwise_tukeyhsd(endog=metrics_df[metric], groups=metrics_df['Model'], alpha=0.05)
                 st.write(f"**{metric}:**")
                 st.text(tukey.summary())
             else:
@@ -1303,7 +1316,8 @@ def main():
                 model_data = train_model(
                     data_dir, num_classes, model_name, fine_tune,
                     epochs, learning_rate, batch_size, train_split,
-                    valid_split, use_weighted_loss, l2_lambda, patience
+                    valid_split, use_weighted_loss, l2_lambda, patience,
+                    model_id="single_model"  # Identificador único para modelo único
                 )
 
                 if model_data is None:
@@ -1324,7 +1338,7 @@ def main():
                 buffer = io.BytesIO()
                 torch.save(model.state_dict(), buffer)
                 buffer.seek(0)
-                btn = st.download_button(
+                st.download_button(
                     label="Download do Modelo",
                     data=buffer,
                     file_name="modelo_treinado.pth",

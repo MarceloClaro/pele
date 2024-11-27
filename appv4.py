@@ -14,7 +14,7 @@ from torch.utils.data import DataLoader, random_split
 from torchvision import transforms, datasets
 from torchvision.models import resnet18, resnet50, densenet121
 from torchvision.models import ResNet18_Weights, ResNet50_Weights, DenseNet121_Weights
-from torchvision.models.segmentation import fcn_resnet50, FCNHead
+from torchvision.models.segmentation import fcn_resnet50, FCNHead  # Importação corrigida
 from sklearn.cluster import AgglomerativeClustering, KMeans
 from sklearn.metrics import (
     adjusted_rand_score, normalized_mutual_info_score,
@@ -262,7 +262,7 @@ def get_segmentation_model(num_classes, fine_tune=False):
 
     # Ajustar a última camada para o número de classes do usuário
     try:
-        # Substituir a camada inteira 'classifier' e 'aux_classifier' com novas instâncias de FCNHead
+        # Substituir as camadas inteiras 'classifier' e 'aux_classifier' com novas instâncias de FCNHead
         model.classifier = FCNHead(2048, num_classes)
         model.aux_classifier = FCNHead(1024, num_classes)
     except Exception as e:
@@ -1153,7 +1153,6 @@ def main():
     Whatsapp: (88)981587145
 
     Instagram: [marceloclaro.geomaker](https://www.instagram.com/marceloclaro.geomaker/)
-
     """)
 
     # Verificar se a soma dos splits é válida

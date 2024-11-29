@@ -435,15 +435,20 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
     # Definir o otimizador com L2 regularization (weight_decay)
     optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=learning_rate, weight_decay=l2_lambda)
 
-    # Inicializar as listas de perdas e acurácias no st.session_state
-    if 'train_losses' not in st.session_state:
-        st.session_state.train_losses = []
-    if 'valid_losses' not in st.session_state:
-        st.session_state.valid_losses = []
-    if 'train_accuracies' not in st.session_state:
-        st.session_state.train_accuracies = []
-    if 'valid_accuracies' not in st.session_state:
-        st.session_state.valid_accuracies = []
+    # Inicializar as listas de perdas e acurácias no st.session_state com chaves únicas
+    train_losses_key = f"train_losses_{model_id}_{run_id}"
+    valid_losses_key = f"valid_losses_{model_id}_{run_id}"
+    train_accuracies_key = f"train_accuracies_{model_id}_{run_id}"
+    valid_accuracies_key = f"valid_accuracies_{model_id}_{run_id}"
+
+    if train_losses_key not in st.session_state:
+        st.session_state[train_losses_key] = []
+    if valid_losses_key not in st.session_state:
+        st.session_state[valid_losses_key] = []
+    if train_accuracies_key not in st.session_state:
+        st.session_state[train_accuracies_key] = []
+    if valid_accuracies_key not in st.session_state:
+        st.session_state[valid_accuracies_key] = []
 
     # Early Stopping
     best_valid_loss = float('inf')
@@ -483,8 +488,8 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
 
         epoch_loss = running_loss / len(train_dataset)
         epoch_acc = running_corrects.double() / len(train_dataset)
-        st.session_state.train_losses.append(epoch_loss)
-        st.session_state.train_accuracies.append(epoch_acc.item())
+        st.session_state[train_losses_key].append(epoch_loss)
+        st.session_state[train_accuracies_key].append(epoch_acc.item())
 
         # Validação
         model.eval()
@@ -505,8 +510,8 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
 
         valid_epoch_loss = valid_running_loss / len(valid_dataset)
         valid_epoch_acc = valid_running_corrects.double() / len(valid_dataset)
-        st.session_state.valid_losses.append(valid_epoch_loss)
-        st.session_state.valid_accuracies.append(valid_epoch_acc.item())
+        st.session_state[valid_losses_key].append(valid_epoch_loss)
+        st.session_state[valid_accuracies_key].append(valid_epoch_acc.item())
 
         # Atualizar gráficos dinamicamente
         with placeholder.container():
@@ -516,16 +521,16 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
             # Gráfico de Perda
-            ax[0].plot(range(1, len(st.session_state.train_losses) + 1), st.session_state.train_losses, label='Treino')
-            ax[0].plot(range(1, len(st.session_state.valid_losses) + 1), st.session_state.valid_losses, label='Validação')
+            ax[0].plot(range(1, len(st.session_state[train_losses_key]) + 1), st.session_state[train_losses_key], label='Treino')
+            ax[0].plot(range(1, len(st.session_state[valid_losses_key]) + 1), st.session_state[valid_losses_key], label='Validação')
             ax[0].set_title(f'Perda por Época ({timestamp})')
             ax[0].set_xlabel('Épocas')
             ax[0].set_ylabel('Perda')
             ax[0].legend()
 
             # Gráfico de Acurácia
-            ax[1].plot(range(1, len(st.session_state.train_accuracies) + 1), st.session_state.train_accuracies, label='Treino')
-            ax[1].plot(range(1, len(st.session_state.valid_accuracies) + 1), st.session_state.valid_accuracies, label='Validação')
+            ax[1].plot(range(1, len(st.session_state[train_accuracies_key]) + 1), st.session_state[train_accuracies_key], label='Treino')
+            ax[1].plot(range(1, len(st.session_state[valid_accuracies_key]) + 1), st.session_state[valid_accuracies_key], label='Validação')
             ax[1].set_title(f'Acurácia por Época ({timestamp})')
             ax[1].set_xlabel('Épocas')
             ax[1].set_ylabel('Acurácia')
@@ -544,8 +549,8 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
             timestamp_hist = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             # Gráfico de Perda
             fig_loss, ax_loss = plt.subplots(figsize=(5, 3))
-            ax_loss.plot(st.session_state.train_losses, label='Perda de Treino')
-            ax_loss.plot(st.session_state.valid_losses, label='Perda de Validação')
+            ax_loss.plot(st.session_state[train_losses_key], label='Perda de Treino')
+            ax_loss.plot(st.session_state[valid_losses_key], label='Perda de Validação')
             ax_loss.set_title(f'Histórico de Perda ({timestamp_hist})')
             ax_loss.set_xlabel('Época')
             ax_loss.set_ylabel('Perda')
@@ -555,8 +560,8 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
 
             # Gráfico de Acurácia
             fig_acc, ax_acc = plt.subplots(figsize=(5, 3))
-            ax_acc.plot(st.session_state.train_accuracies, label='Acurácia de Treino')
-            ax_acc.plot(st.session_state.valid_accuracies, label='Acurácia de Validação')
+            ax_acc.plot(st.session_state[train_accuracies_key], label='Acurácia de Treino')
+            ax_acc.plot(st.session_state[valid_accuracies_key], label='Acurácia de Validação')
             ax_acc.set_title(f'Histórico de Acurácia ({timestamp_hist})')
             ax_acc.set_xlabel('Época')
             ax_acc.set_ylabel('Acurácia')
@@ -566,10 +571,10 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
 
             # Botão para limpar o histórico
             if st.button("Limpar Histórico", key=f"limpar_historico_{model_id}_run_{run_id}_epoch_{epoch}"):
-                st.session_state.train_losses = []
-                st.session_state.valid_losses = []
-                st.session_state.train_accuracies = []
-                st.session_state.valid_accuracies = []
+                st.session_state[train_losses_key] = []
+                st.session_state[valid_losses_key] = []
+                st.session_state[train_accuracies_key] = []
+                st.session_state[valid_accuracies_key] = []
                 st.experimental_rerun()
 
         # Early Stopping
@@ -590,8 +595,12 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
         model.load_state_dict(best_model_wts)
 
     # Gráficos de Perda e Acurácia finais
-    plot_metrics(st.session_state.train_losses, st.session_state.valid_losses, 
-                st.session_state.train_accuracies, st.session_state.valid_accuracies)
+    plot_metrics(
+        st.session_state[train_losses_key],
+        st.session_state[valid_losses_key],
+        st.session_state[train_accuracies_key],
+        st.session_state[valid_accuracies_key]
+    )
 
     # Avaliação Final no Conjunto de Teste
     st.write("**Avaliação no Conjunto de Teste**")
@@ -1167,7 +1176,7 @@ def main():
             data_dir = temp_dir
 
             st.write("Iniciando o treinamento supervisionado...")
-            model_data = train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_rate, batch_size, train_split, valid_split, use_weighted_loss, l2_lambda, patience)
+            model_data = train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_rate, batch_size, train_split, valid_split, use_weighted_loss, l2_lambda, patience, model_id="single_run", run_id=1)
 
             if model_data is None:
                 st.error("Erro no treinamento do modelo.")

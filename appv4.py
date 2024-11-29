@@ -704,12 +704,14 @@ def compute_metrics(model, dataloader, classes):
         roc_auc = roc_auc_score(binarized_labels, np.array(all_probs), average='weighted', multi_class='ovr')
         st.write(f"AUC-ROC Média Ponderada: {roc_auc:.4f}")
 
-    # Coletar métricas para análise estatística
+    # Calcule as métricas de desempenho
     accuracy = report['accuracy']
-    precision = np.nanmean([report[cls]['precision'] for cls in classes])
-    recall = np.nanmean([report[cls]['recall'] for cls in classes])
-    f1_score = np.nanmean([report[cls]['f1-score'] for cls in classes])
+    precision = report['weighted avg']['precision']
+    recall = report['weighted avg']['recall']
+    f1_score = report['weighted avg']['f1-score']
+    # 'roc_auc' já foi calculado acima
 
+    # Retornar as métricas em um dicionário
     metrics = {
         'Model': model.__class__.__name__,
         'Accuracy': accuracy,
@@ -899,6 +901,25 @@ def visualize_activations(model, image, class_names, model_name):
     cam_extractor.clear_hooks()
 
 
+def perform_anova(data, groups):
+    """
+    Realiza a análise ANOVA para comparar as médias entre diferentes grupos.
+    """
+    f_val, p_val = stats.f_oneway(*[data[groups == group] for group in np.unique(groups)])
+    return f_val, p_val
+
+
+def visualize_anova_results(f_val, p_val):
+    """
+    Visualiza os resultados da análise ANOVA.
+    """
+    st.write(f"Valor F: {f_val:.4f}, Valor p: {p_val:.4f}")
+    if p_val < 0.05:
+        st.write("Os resultados são estatisticamente significativos.")
+    else:
+        st.write("Os resultados não são estatisticamente significativos.")
+
+
 def main():
     # Definir o caminho do ícone
     icon_path = "logo.png"  # Verifique se o arquivo logo.png está no diretório correto
@@ -1069,15 +1090,17 @@ def main():
         st.subheader("Análise de Variância (ANOVA) para as Métricas de Desempenho")
         for metric in ['Accuracy', 'Precision', 'Recall', 'F1_Score', 'ROC_AUC']:
             data = metrics_df[['Model', metric]].dropna()
-            group_sizes = data.groupby('Model').size()
             st.write(f"**Métrica: {metric}**")
+            # Verificar se há dados suficientes
+            group_sizes = data.groupby('Model').size()
             st.write("**Tamanhos dos Grupos (Modelos):**")
             st.write(group_sizes)
             if len(group_sizes) >= 2 and (group_sizes >= 2).all():
-                # Agrupar as métricas por modelo
-                groups = [group[1][metric].tolist() for group in data.groupby('Model')]
-                anova_result = stats.f_oneway(*groups)
-                st.write(f"**ANOVA Result:** F-statistic = {anova_result.statistic:.4f}, p-value = {anova_result.pvalue:.4f}")
+                # Preparar os dados para ANOVA
+                groups = data['Model'].values
+                metric_data = data[metric].values
+                f_val, p_val = perform_anova(metric_data, groups)
+                visualize_anova_results(f_val, p_val)
             else:
                 st.write(f"**{metric}:** ANOVA não pode ser realizada. É necessário pelo menos dois modelos com pelo menos duas observações cada.")
 

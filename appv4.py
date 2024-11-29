@@ -1,5 +1,3 @@
-# [Código completo com os ajustes, incluindo imports e funções]
-
 import os
 import zipfile
 import shutil
@@ -572,13 +570,17 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
             st.pyplot(fig_acc)
             plt.close(fig_acc)  # Fechar a figura para liberar memória
 
-            # Botão para limpar o histórico
-            if st.button("Limpar Histórico", key=f"limpar_historico_{model_id}_{run_id}"):
-                del st.session_state[train_losses_key]
-                del st.session_state[valid_losses_key]
-                del st.session_state[train_accuracies_key]
-                del st.session_state[valid_accuracies_key]
-                st.experimental_rerun()
+            # **Mover o botão "Limpar Histórico" para fora do loop de épocas**
+            # Isso garante que o botão seja criado apenas uma vez por modelo e execução
+            limpar_key = f"limpar_historico_{model_id}_{run_id}"
+            if not any(k.startswith(limpar_key) for k in st.session_state.keys()):
+                if st.button("Limpar Histórico", key=limpar_key):
+                    st.session_state[train_losses_key] = []
+                    st.session_state[valid_losses_key] = []
+                    st.session_state[train_accuracies_key] = []
+                    st.session_state[valid_accuracies_key] = []
+                    st.session_state['all_model_metrics'] = []
+                    st.experimental_rerun()
 
         # Early Stopping
         if valid_epoch_loss < best_valid_loss:

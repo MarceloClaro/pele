@@ -1027,6 +1027,23 @@ def main():
     num_models = st.number_input("Número de Modelos a Treinar (Máximo 3):", min_value=1, max_value=3, value=3, step=1, key="num_models")
     runs_per_model = st.number_input("Número de Execuções por Modelo:", min_value=1, max_value=10, value=3, step=1, key="runs_per_model")
 
+    # Checkboxes para seleção de modelos
+    st.write("Selecione os modelos que deseja treinar:")
+    model_selection = {
+        'ResNet18': st.checkbox('ResNet18', value=True, key='model_resnet18'),
+        'ResNet50': st.checkbox('ResNet50', value=True, key='model_resnet50'),
+        'DenseNet121': st.checkbox('DenseNet121', value=True, key='model_densenet121')
+    }
+
+    # Lista de modelos selecionados na ordem fixa
+    model_list = [model_name for model_name in ['ResNet18', 'ResNet50', 'DenseNet121'] if model_selection[model_name]]
+
+    if len(model_list) == 0:
+        st.error("Por favor, selecione pelo menos um modelo para treinar.")
+
+    # Atualizar o número de modelos com base na seleção
+    num_models = len(model_list)
+
     # Inicializar 'all_model_metrics' no session_state se ainda não existir
     if 'all_model_metrics' not in st.session_state:
         st.session_state['all_model_metrics'] = []
@@ -1036,7 +1053,7 @@ def main():
 
     if st.button("Iniciar Treinamento Múltiplo"):
         if num_models < 1:
-            st.error("Por favor, insira um número válido de modelos para treinar.")
+            st.error("Por favor, selecione pelo menos um modelo para treinar.")
         elif zip_file is None:
             st.error("Por favor, faça upload do arquivo ZIP com as imagens.")
         else:
@@ -1049,11 +1066,7 @@ def main():
                     zip_ref.extractall(temp_dir)
                 data_dir = temp_dir
 
-                # Lista de modelos na ordem específica
-                model_list = ['ResNet18', 'ResNet50', 'DenseNet121']
-
-                for i in range(num_models):
-                    model_name = model_list[i]  # Seleciona o modelo na ordem desejada
+                for i, model_name in enumerate(model_list):
                     for run in range(1, runs_per_model + 1):
                         st.write(f"**Treinando Modelo {i+1}/{num_models} ({model_name}) - Execução {run}/{runs_per_model}**")
                         model_id = f"model_{i+1}"

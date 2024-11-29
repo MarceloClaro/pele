@@ -325,6 +325,15 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
     """
     set_seed(42)
 
+    # Exibir as configurações técnicas do modelo
+    st.subheader(f"Treinamento do {model_name} - Execução {run_id}")
+    st.write("**Configurações Técnicas:**")
+    config_df = pd.DataFrame({
+        'Parâmetro': ['Modelo', 'Fine-Tuning Completo', 'Épocas', 'Taxa de Aprendizagem', 'Tamanho do Lote', 'L2 Regularization', 'Paciência Early Stopping'],
+        'Valor': [model_name, fine_tune, epochs, learning_rate, batch_size, l2_lambda, patience]
+    })
+    st.table(config_df)
+
     # Carregar o dataset original sem transformações
     full_dataset = datasets.ImageFolder(root=data_dir)
 
@@ -524,7 +533,7 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
             # Gráfico de Perda
             ax[0].plot(range(1, len(st.session_state[train_losses_key]) + 1), st.session_state[train_losses_key], label='Treino')
             ax[0].plot(range(1, len(st.session_state[valid_losses_key]) + 1), st.session_state[valid_losses_key], label='Validação')
-            ax[0].set_title(f'Perda por Época ({timestamp})')
+            ax[0].set_title(f'Perda por Época - {model_name} (Execução {run_id})')
             ax[0].set_xlabel('Épocas')
             ax[0].set_ylabel('Perda')
             ax[0].legend()
@@ -532,7 +541,7 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
             # Gráfico de Acurácia
             ax[1].plot(range(1, len(st.session_state[train_accuracies_key]) + 1), st.session_state[train_accuracies_key], label='Treino')
             ax[1].plot(range(1, len(st.session_state[valid_accuracies_key]) + 1), st.session_state[valid_accuracies_key], label='Validação')
-            ax[1].set_title(f'Acurácia por Época ({timestamp})')
+            ax[1].set_title(f'Acurácia por Época - {model_name} (Execução {run_id})')
             ax[1].set_xlabel('Épocas')
             ax[1].set_ylabel('Acurácia')
             ax[1].legend()
@@ -546,7 +555,7 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
         epoch_text.text(f'Época {epoch+1}/{epochs}')
 
         # Atualizar histórico na barra lateral
-        with st.sidebar.expander("Histórico de Treinamento", expanded=True):
+        with st.sidebar.expander(f"Histórico de Treinamento - {model_name} (Execução {run_id})", expanded=True):
             timestamp_hist = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             # Gráfico de Perda
             fig_loss, ax_loss = plt.subplots(figsize=(5, 3))
@@ -573,13 +582,14 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
             # **Mover o botão "Limpar Histórico" para fora do loop de épocas**
             # Isso garante que o botão seja criado apenas uma vez por modelo e execução
             limpar_key = f"limpar_historico_{model_id}_{run_id}"
-            if not any(k.startswith(limpar_key) for k in st.session_state.keys()):
+            if limpar_key not in st.session_state:
                 if st.button("Limpar Histórico", key=limpar_key):
                     st.session_state[train_losses_key] = []
                     st.session_state[valid_losses_key] = []
                     st.session_state[train_accuracies_key] = []
                     st.session_state[valid_accuracies_key] = []
                     st.session_state['all_model_metrics'] = []
+                    st.session_state[limpar_key] = True  # Marca que o histórico foi limpo
                     st.experimental_rerun()
 
         # Early Stopping
@@ -604,7 +614,9 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
         st.session_state[train_losses_key],
         st.session_state[valid_losses_key],
         st.session_state[train_accuracies_key],
-        st.session_state[valid_accuracies_key]
+        st.session_state[valid_accuracies_key],
+        model_name=model_name,
+        run_id=run_id
     )
 
     # Avaliação Final no Conjunto de Teste
@@ -631,7 +643,7 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
     return model, full_dataset.classes, metrics
 
 
-def plot_metrics(train_losses, valid_losses, train_accuracies, valid_accuracies):
+def plot_metrics(train_losses, valid_losses, train_accuracies, valid_accuracies, model_name, run_id):
     """
     Plota os gráficos de perda e acurácia.
     """
@@ -644,7 +656,7 @@ def plot_metrics(train_losses, valid_losses, train_accuracies, valid_accuracies)
     # Gráfico de Perda
     ax[0].plot(epochs_range, train_losses, label='Treino')
     ax[0].plot(epochs_range, valid_losses, label='Validação')
-    ax[0].set_title(f'Perda por Época ({timestamp})')
+    ax[0].set_title(f'Perda por Época - {model_name} (Execução {run_id})')
     ax[0].set_xlabel('Épocas')
     ax[0].set_ylabel('Perda')
     ax[0].legend()
@@ -652,7 +664,7 @@ def plot_metrics(train_losses, valid_losses, train_accuracies, valid_accuracies)
     # Gráfico de Acurácia
     ax[1].plot(epochs_range, train_accuracies, label='Treino')
     ax[1].plot(epochs_range, valid_accuracies, label='Validação')
-    ax[1].set_title(f'Acurácia por Época ({timestamp})')
+    ax[1].set_title(f'Acurácia por Época - {model_name} (Execução {run_id})')
     ax[1].set_xlabel('Épocas')
     ax[1].set_ylabel('Acurácia')
     ax[1].legend()

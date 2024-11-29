@@ -1,3 +1,5 @@
+# [Código completo com os ajustes, incluindo imports e funções]
+
 import os
 import zipfile
 import shutil
@@ -441,6 +443,7 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
     train_accuracies_key = f"train_accuracies_{model_id}_{run_id}"
     valid_accuracies_key = f"valid_accuracies_{model_id}_{run_id}"
 
+    # Verificar se as chaves já existem no st.session_state; se não, inicializá-las
     if train_losses_key not in st.session_state:
         st.session_state[train_losses_key] = []
     if valid_losses_key not in st.session_state:
@@ -570,11 +573,11 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
             plt.close(fig_acc)  # Fechar a figura para liberar memória
 
             # Botão para limpar o histórico
-            if st.button("Limpar Histórico", key=f"limpar_historico_{model_id}_run_{run_id}_epoch_{epoch}"):
-                st.session_state[train_losses_key] = []
-                st.session_state[valid_losses_key] = []
-                st.session_state[train_accuracies_key] = []
-                st.session_state[valid_accuracies_key] = []
+            if st.button("Limpar Histórico", key=f"limpar_historico_{model_id}_{run_id}"):
+                del st.session_state[train_losses_key]
+                del st.session_state[valid_losses_key]
+                del st.session_state[train_accuracies_key]
+                del st.session_state[valid_accuracies_key]
                 st.experimental_rerun()
 
         # Early Stopping
@@ -1010,12 +1013,9 @@ def main():
     num_models = st.number_input("Número de Modelos a Treinar:", min_value=1, max_value=10, value=3, step=1, key="num_models")
     runs_per_model = st.number_input("Número de Execuções por Modelo:", min_value=1, max_value=10, value=3, step=1, key="runs_per_model")
 
-    # Lista para armazenar as métricas de todos os modelos
-    all_model_metrics = []
-
-    # Inicializar 'all_model_metrics' no session_state
+    # Inicializar 'all_model_metrics' no session_state se ainda não existir
     if 'all_model_metrics' not in st.session_state:
-        st.session_state.all_model_metrics = []
+        st.session_state['all_model_metrics'] = []
 
     # Uploader de arquivo ZIP fora do botão para garantir que o arquivo seja carregado antes do treinamento
     zip_file = st.file_uploader("Upload do arquivo ZIP com as imagens", type=["zip"], key="zip_file_uploader_main_multiple")
@@ -1052,7 +1052,7 @@ def main():
                             continue
 
                         model, classes, metrics = model_data
-                        all_model_metrics.append(metrics)
+                        st.session_state['all_model_metrics'].append(metrics)
                         st.success(f"Treinamento do Modelo {i+1}, Execução {run} concluído!")
 
                         # Opção para baixar o modelo treinado
@@ -1071,15 +1071,13 @@ def main():
                 # Limpar o diretório temporário
                 shutil.rmtree(temp_dir)
 
-                # Armazenar as métricas no session_state
-                st.session_state.all_model_metrics.extend(all_model_metrics)
             except Exception as e:
                 st.error(f"Erro durante o treinamento múltiplo: {e}")
 
     # Exibir as métricas coletadas
-    if 'all_model_metrics' in st.session_state and len(st.session_state.all_model_metrics) > 0:
+    if 'all_model_metrics' in st.session_state and len(st.session_state['all_model_metrics']) > 0:
         st.header("Métricas de Desempenho de Todos os Modelos")
-        metrics_df = pd.DataFrame(st.session_state.all_model_metrics)
+        metrics_df = pd.DataFrame(st.session_state['all_model_metrics'])
         st.dataframe(metrics_df)
 
         # Calcular Intervalos de Confiança para Cada Métrica

@@ -579,8 +579,7 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
             st.pyplot(fig_acc)
             plt.close(fig_acc)  # Fechar a figura para liberar memória
 
-            # **Mover o botão "Limpar Histórico" para fora do loop de épocas**
-            # Isso garante que o botão seja criado apenas uma vez por modelo e execução
+            # Mover o botão "Limpar Histórico" para fora do loop de épocas
             limpar_key = f"limpar_historico_{model_id}_{run_id}"
             if limpar_key not in st.session_state:
                 if st.button("Limpar Histórico", key=limpar_key):
@@ -621,13 +620,13 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
 
     # Avaliação Final no Conjunto de Teste
     st.write("**Avaliação no Conjunto de Teste**")
-    metrics = compute_metrics(model, test_loader, full_dataset.classes)
+    metrics = compute_metrics(model, test_loader, full_dataset.classes, model_name, run_id)
 
     # Análise de Erros
     st.write("**Análise de Erros**")
     error_analysis(model, test_loader, full_dataset.classes)
 
-    # **Clusterização e Análise Comparativa**
+    # Clusterização e Análise Comparativa
     st.write("**Análise de Clusterização**")
     perform_clustering(model, test_loader, full_dataset.classes)
 
@@ -673,7 +672,7 @@ def plot_metrics(train_losses, valid_losses, train_accuracies, valid_accuracies,
     plt.close(fig)  # Fechar a figura para liberar memória
 
 
-def compute_metrics(model, dataloader, classes):
+def compute_metrics(model, dataloader, classes, model_name, run_id):
     """
     Calcula métricas detalhadas e exibe matriz de confusão e relatório de classificação.
     """
@@ -739,7 +738,8 @@ def compute_metrics(model, dataloader, classes):
 
     # Retornar as métricas em um dicionário
     metrics = {
-        'Model': model.__class__.__name__,
+        'Model': model_name,
+        'Run_ID': run_id,
         'Accuracy': accuracy,
         'Precision': precision,
         'Recall': recall,
@@ -988,7 +988,7 @@ def main():
     # Barra Lateral de Configurações
     st.sidebar.title("Configurações do Treinamento")
     num_classes = st.sidebar.number_input("Número de Classes:", min_value=2, step=1, key="num_classes")
-    model_name = st.sidebar.selectbox("Modelo Pré-treinado:", options=['ResNet18', 'ResNet50', 'DenseNet121'], key="model_name")
+    # Removido o selectbox de seleção de modelo para o treinamento múltiplo
     fine_tune = st.sidebar.checkbox("Fine-Tuning Completo", value=False, key="fine_tune")
     epochs = st.sidebar.slider("Número de Épocas:", min_value=1, max_value=500, value=200, step=1, key="epochs")
     learning_rate = st.sidebar.select_slider("Taxa de Aprendizagem:", options=[0.1, 0.01, 0.001, 0.0001], value=0.0001, key="learning_rate")
@@ -1024,7 +1024,7 @@ def main():
     st.write("Treine múltiplos modelos com diferentes configurações para avaliar estatisticamente o desempenho.")
 
     # Configurações para múltiplos modelos
-    num_models = st.number_input("Número de Modelos a Treinar:", min_value=1, max_value=10, value=3, step=1, key="num_models")
+    num_models = st.number_input("Número de Modelos a Treinar (Máximo 3):", min_value=1, max_value=3, value=3, step=1, key="num_models")
     runs_per_model = st.number_input("Número de Execuções por Modelo:", min_value=1, max_value=10, value=3, step=1, key="runs_per_model")
 
     # Inicializar 'all_model_metrics' no session_state se ainda não existir
@@ -1049,9 +1049,13 @@ def main():
                     zip_ref.extractall(temp_dir)
                 data_dir = temp_dir
 
+                # Lista de modelos na ordem específica
+                model_list = ['ResNet18', 'ResNet50', 'DenseNet121']
+
                 for i in range(num_models):
+                    model_name = model_list[i]  # Seleciona o modelo na ordem desejada
                     for run in range(1, runs_per_model + 1):
-                        st.write(f"**Treinando Modelo {i+1}/{num_models} - Execução {run}/{runs_per_model}**")
+                        st.write(f"**Treinando Modelo {i+1}/{num_models} ({model_name}) - Execução {run}/{runs_per_model}**")
                         model_id = f"model_{i+1}"
                         run_id = run
                         model_data = train_model(
@@ -1067,17 +1071,17 @@ def main():
 
                         model, classes, metrics = model_data
                         st.session_state['all_model_metrics'].append(metrics)
-                        st.success(f"Treinamento do Modelo {i+1}, Execução {run} concluído!")
+                        st.success(f"Treinamento do Modelo {i+1} ({model_name}), Execução {run} concluído!")
 
                         # Opção para baixar o modelo treinado
-                        st.write(f"Faça o download do modelo treinado para o Modelo {i+1}, Execução {run}:")
+                        st.write(f"Faça o download do modelo treinado para o Modelo {i+1} ({model_name}), Execução {run}:")
                         buffer = io.BytesIO()
                         torch.save(model.state_dict(), buffer)
                         buffer.seek(0)
                         st.download_button(
-                            label=f"Download do Modelo {i+1}_Execução_{run}",
+                            label=f"Download do Modelo {model_name}_Execução_{run}",
                             data=buffer,
-                            file_name=f"modelo_{i+1}_exec_{run}.pth",
+                            file_name=f"{model_name}_exec_{run}.pth",
                             mime="application/octet-stream",
                             key=f"download_model_button_{i+1}_{run}"
                         )
@@ -1146,6 +1150,8 @@ def main():
         # Upload do modelo pré-treinado
         model_file = st.file_uploader("Faça upload do arquivo do modelo (.pt ou .pth)", type=["pt", "pth"], key="model_file_uploader_main")
         if model_file is not None and num_classes > 0:
+            # Seleção do modelo
+            model_name = st.selectbox("Modelo Pré-treinado:", options=['ResNet18', 'ResNet50', 'DenseNet121'], key="model_name_single")
             # Carregar o modelo
             model = get_model(model_name, num_classes, dropout_p=0.5, fine_tune=False)
             if model is None:
@@ -1176,6 +1182,8 @@ def main():
                 st.error("Por favor, forneça o arquivo com as classes.")
 
     elif model_option == "Treinar um novo modelo":
+        # Seleção do modelo
+        model_name = st.selectbox("Modelo Pré-treinado para Treinamento Único:", options=['ResNet18', 'ResNet50', 'DenseNet121'], key="model_name_single")
         # Upload do arquivo ZIP
         zip_file = st.file_uploader("Upload do arquivo ZIP com as imagens", type=["zip"], key="zip_file_uploader")
         if zip_file is not None and num_classes > 0 and train_split + valid_split <= 0.95:
@@ -1267,7 +1275,7 @@ def main():
         else:
             model_eval = st.session_state['model']
             classes_eval = st.session_state['classes']
-            model_name_eval = st.session_state.get('trained_model_name', model_name)  # Usa o nome do modelo armazenado
+            model_name_eval = st.session_state.get('trained_model_name', 'ResNet18')  # Usa o nome do modelo armazenado
 
         eval_image_file = st.file_uploader("Faça upload da imagem para avaliação", type=["png", "jpg", "jpeg", "bmp", "gif"], key="eval_image_file")
         if eval_image_file is not None:

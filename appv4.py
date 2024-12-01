@@ -377,6 +377,11 @@ def train_model(train_loader, valid_loader, test_loader, num_classes, model_name
         'Use Weighted Loss': use_weighted_loss
     }
     config_df = pd.DataFrame(list(config.items()), columns=['Parâmetro', 'Valor'])
+
+    # Converter colunas booleanas para strings para evitar problemas de serialização
+    bool_cols = config_df.select_dtypes(include=['bool']).columns
+    config_df[bool_cols] = config_df[bool_cols].astype(str)
+
     st.table(config_df)
 
     # Salvar configurações em arquivo JSON
@@ -657,6 +662,11 @@ def compute_metrics(model, dataloader, classes, model_name, run_id):
     # Relatório de Classificação
     report = classification_report(all_labels, all_preds, target_names=classes, output_dict=True)
     report_df = pd.DataFrame(report).transpose()
+
+    # Converter colunas booleanas para strings para evitar problemas de serialização
+    bool_cols = report_df.select_dtypes(include=['bool']).columns
+    report_df[bool_cols] = report_df[bool_cols].astype(str)
+
     st.text("Relatório de Classificação:")
 
     # Converter colunas numéricas para tipos adequados

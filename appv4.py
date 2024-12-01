@@ -40,6 +40,7 @@ from datetime import datetime
 from scipy import stats
 import uuid  # Importação do módulo uuid para gerar identificadores únicos
 from statsmodels.stats.multicomp import pairwise_tukeyhsd  # Importação para Tukey HSD
+import psutil  # Para monitoramento de recursos
 
 # Supressão dos avisos relacionados ao torch.classes e outros específicos
 warnings.filterwarnings("ignore", category=UserWarning, message=".*torch.classes.*")
@@ -378,9 +379,8 @@ def train_model(train_loader, valid_loader, test_loader, num_classes, model_name
     }
     config_df = pd.DataFrame(list(config.items()), columns=['Parâmetro', 'Valor'])
 
-    # Converter colunas booleanas para strings para evitar problemas de serialização
-    bool_cols = config_df.select_dtypes(include=['bool']).columns
-    config_df[bool_cols] = config_df[bool_cols].astype(str)
+    # Converter a coluna 'Valor' para strings
+    config_df['Valor'] = config_df['Valor'].astype(str)
 
     st.table(config_df)
 
@@ -457,112 +457,113 @@ def train_model(train_loader, valid_loader, test_loader, num_classes, model_name
     epoch_text = st.empty()
 
     # Treinamento
-    for epoch in range(epochs):
-        set_seed(42 + epoch)
-        running_loss = 0.0
-        running_corrects = 0
-        model.train()
+    with st.spinner('Treinando o modelo...'):
+        for epoch in range(epochs):
+            set_seed(42 + epoch)
+            running_loss = 0.0
+            running_corrects = 0
+            model.train()
 
-        for inputs, labels in train_loader:
-            inputs = inputs.to(device)
-            labels = labels.to(device)
-
-            optimizer.zero_grad()
-            try:
-                outputs = model(inputs)
-            except Exception as e:
-                st.error(f"Erro durante o treinamento: {e}")
-                return None
-
-            _, preds = torch.max(outputs, 1)
-            loss = criterion(outputs, labels)
-            loss.backward()
-            optimizer.step()
-
-            running_loss += loss.item() * inputs.size(0)
-            running_corrects += torch.sum(preds == labels.data)
-
-        epoch_loss = running_loss / len(train_loader.dataset)
-        epoch_acc = running_corrects.double() / len(train_loader.dataset)
-        st.session_state[train_losses_key].append(epoch_loss)
-        st.session_state[train_accuracies_key].append(epoch_acc.item())
-
-        # Validação
-        model.eval()
-        valid_running_loss = 0.0
-        valid_running_corrects = 0
-
-        with torch.no_grad():
-            for inputs, labels in valid_loader:
+            for inputs, labels in train_loader:
                 inputs = inputs.to(device)
                 labels = labels.to(device)
 
-                outputs = model(inputs)
+                optimizer.zero_grad()
+                try:
+                    outputs = model(inputs)
+                except Exception as e:
+                    st.error(f"Erro durante o treinamento: {e}")
+                    return None
+
                 _, preds = torch.max(outputs, 1)
                 loss = criterion(outputs, labels)
+                loss.backward()
+                optimizer.step()
 
-                valid_running_loss += loss.item() * inputs.size(0)
-                valid_running_corrects += torch.sum(preds == labels.data)
+                running_loss += loss.item() * inputs.size(0)
+                running_corrects += torch.sum(preds == labels.data)
 
-        valid_epoch_loss = valid_running_loss / len(valid_loader.dataset)
-        valid_epoch_acc = valid_running_corrects.double() / len(valid_loader.dataset)
-        st.session_state[valid_losses_key].append(valid_epoch_loss)
-        st.session_state[valid_accuracies_key].append(valid_epoch_acc.item())
+            epoch_loss = running_loss / len(train_loader.dataset)
+            epoch_acc = running_corrects.double() / len(train_loader.dataset)
+            st.session_state[train_losses_key].append(epoch_loss)
+            st.session_state[train_accuracies_key].append(epoch_acc.item())
 
-        # Atualizar gráficos dinamicamente
-        with placeholder.container():
-            fig, ax = plt.subplots(1, 2, figsize=(14, 5))
+            # Validação
+            model.eval()
+            valid_running_loss = 0.0
+            valid_running_corrects = 0
 
-            # Gráfico de Perda
-            ax[0].plot(range(1, len(st.session_state[train_losses_key]) + 1), st.session_state[train_losses_key], label='Treino')
-            ax[0].plot(range(1, len(st.session_state[valid_losses_key]) + 1), st.session_state[valid_losses_key], label='Validação')
-            ax[0].set_title(f'Perda por Época - {model_name} (Execução {run_id})')
-            ax[0].set_xlabel('Épocas')
-            ax[0].set_ylabel('Perda')
-            ax[0].legend()
+            with torch.no_grad():
+                for inputs, labels in valid_loader:
+                    inputs = inputs.to(device)
+                    labels = labels.to(device)
 
-            # Gráfico de Acurácia
-            ax[1].plot(range(1, len(st.session_state[train_accuracies_key]) + 1), st.session_state[train_accuracies_key], label='Treino')
-            ax[1].plot(range(1, len(st.session_state[valid_accuracies_key]) + 1), st.session_state[valid_accuracies_key], label='Validação')
-            ax[1].set_title(f'Acurácia por Época - {model_name} (Execução {run_id})')
-            ax[1].set_xlabel('Épocas')
-            ax[1].set_ylabel('Acurácia')
-            ax[1].legend()
+                    outputs = model(inputs)
+                    _, preds = torch.max(outputs, 1)
+                    loss = criterion(outputs, labels)
 
-            plt.tight_layout()
-            plt.savefig(f'loss_accuracy_{model_name}_run{run_id}.png')
-            st.image(f'loss_accuracy_{model_name}_run{run_id}.png', caption='Perda e Acurácia por Época', use_container_width=True)
+                    valid_running_loss += loss.item() * inputs.size(0)
+                    valid_running_corrects += torch.sum(preds == labels.data)
 
-            # Disponibilizar para download com chave única por época
-            unique_id = uuid.uuid4()
-            with open(f'loss_accuracy_{model_name}_run{run_id}.png', "rb") as file:
-                btn = st.download_button(
-                    label="Download do Gráfico de Perda e Acurácia (Atualizado)",
-                    data=file,
-                    file_name=f'loss_accuracy_{model_name}_run{run_id}.png',
-                    mime="image/png",
-                    key=f"download_loss_accuracy_{model_name}_run{run_id}_{unique_id}"
-                )
-            if btn:
-                st.success("Gráfico de perda e acurácia baixado com sucesso!")
+            valid_epoch_loss = valid_running_loss / len(valid_loader.dataset)
+            valid_epoch_acc = valid_running_corrects.double() / len(valid_loader.dataset)
+            st.session_state[valid_losses_key].append(valid_epoch_loss)
+            st.session_state[valid_accuracies_key].append(valid_epoch_acc.item())
 
-        # Atualizar texto de progresso
-        progress = (epoch + 1) / epochs
-        progress_bar.progress(progress)
-        epoch_text.text(f'Época {epoch + 1}/{epochs}')
+            # Atualizar gráficos dinamicamente
+            with placeholder.container():
+                fig, ax = plt.subplots(1, 2, figsize=(14, 5))
 
-        # Early Stopping
-        if valid_epoch_loss < best_valid_loss:
-            best_valid_loss = valid_epoch_loss
-            epochs_no_improve = 0
-            best_model_wts = model.state_dict()
-        else:
-            epochs_no_improve += 1
-            if epochs_no_improve >= patience:
-                st.write('Early stopping!')
-                if best_model_wts is not None:
-                    model.load_state_dict(best_model_wts)
-                break
+                # Gráfico de Perda
+                ax[0].plot(range(1, len(st.session_state[train_losses_key]) + 1), st.session_state[train_losses_key], label='Treino')
+                ax[0].plot(range(1, len(st.session_state[valid_losses_key]) + 1), st.session_state[valid_losses_key], label='Validação')
+                ax[0].set_title(f'Perda por Época - {model_name} (Execução {run_id})')
+                ax[0].set_xlabel('Épocas')
+                ax[0].set_ylabel('Perda')
+                ax[0].legend()
+
+                # Gráfico de Acurácia
+                ax[1].plot(range(1, len(st.session_state[train_accuracies_key]) + 1), st.session_state[train_accuracies_key], label='Treino')
+                ax[1].plot(range(1, len(st.session_state[valid_accuracies_key]) + 1), st.session_state[valid_accuracies_key], label='Validação')
+                ax[1].set_title(f'Acurácia por Época - {model_name} (Execução {run_id})')
+                ax[1].set_xlabel('Épocas')
+                ax[1].set_ylabel('Acurácia')
+                ax[1].legend()
+
+                plt.tight_layout()
+                plt.savefig(f'loss_accuracy_{model_name}_run{run_id}.png')
+                st.image(f'loss_accuracy_{model_name}_run{run_id}.png', caption='Perda e Acurácia por Época', use_container_width=True)
+
+                # Disponibilizar para download com chave única por época
+                unique_id = uuid.uuid4()
+                with open(f'loss_accuracy_{model_name}_run{run_id}.png', "rb") as file:
+                    btn = st.download_button(
+                        label="Download do Gráfico de Perda e Acurácia (Atualizado)",
+                        data=file,
+                        file_name=f'loss_accuracy_{model_name}_run{run_id}.png',
+                        mime="image/png",
+                        key=f"download_loss_accuracy_{model_name}_run{run_id}_{unique_id}"
+                    )
+                if btn:
+                    st.success("Gráfico de perda e acurácia baixado com sucesso!")
+
+            # Atualizar texto de progresso
+            progress = (epoch + 1) / epochs
+            progress_bar.progress(progress)
+            epoch_text.text(f'Época {epoch + 1}/{epochs}')
+
+            # Early Stopping
+            if valid_epoch_loss < best_valid_loss:
+                best_valid_loss = valid_epoch_loss
+                epochs_no_improve = 0
+                best_model_wts = model.state_dict()
+            else:
+                epochs_no_improve += 1
+                if epochs_no_improve >= patience:
+                    st.write('Early stopping!')
+                    if best_model_wts is not None:
+                        model.load_state_dict(best_model_wts)
+                    break
 
     # Carregar os melhores pesos do modelo se houver
     if best_model_wts is not None:
@@ -1145,7 +1146,7 @@ def main():
     num_classes = st.sidebar.number_input("Número de Classes:", min_value=2, step=1, key="num_classes")
     # Removido o selectbox de seleção de modelo para o treinamento múltiplo
     fine_tune = st.sidebar.checkbox("Fine-Tuning Completo", value=False, key="fine_tune")
-    epochs = st.sidebar.slider("Número de Épocas:", min_value=1, max_value=500, value=200, step=1, key="epochs")
+    epochs = st.sidebar.slider("Número de Épocas:", min_value=1, max_value=50, value=10, step=1, key="epochs")
     learning_rate = st.sidebar.select_slider("Taxa de Aprendizagem:", options=[0.1, 0.01, 0.001, 0.0001], value=0.0001, key="learning_rate")
     batch_size = st.sidebar.selectbox("Tamanho de Lote:", options=[4, 8, 16, 32, 64], index=2, key="batch_size")
     train_split = st.sidebar.slider("Percentual de Treinamento:", min_value=0.5, max_value=0.9, value=0.7, step=0.05, key="train_split")
@@ -1765,6 +1766,14 @@ def main():
     # Documentação dos Procedimentos
     st.write("### Documentação dos Procedimentos")
     st.write("Todas as etapas foram cuidadosamente registradas. Utilize esta documentação para reproduzir o experimento e analisar os resultados.")
+
+    # Monitoramento de Recursos
+    st.header("Monitoramento de Recursos")
+    cpu_usage = psutil.cpu_percent(interval=1)
+    mem = psutil.virtual_memory()
+    mem_usage = mem.percent
+    st.write(f"**Uso de CPU:** {cpu_usage}%")
+    st.write(f"**Uso de Memória RAM:** {mem_usage}%")
 
     # Encerrar a aplicação
     st.write("Obrigado por utilizar o aplicativo!")

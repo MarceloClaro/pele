@@ -37,6 +37,7 @@ import uuid  # Importação do módulo uuid para gerar identificadores únicos
 
 # Supressão dos avisos relacionados ao torch.classes
 warnings.filterwarnings("ignore", category=UserWarning, message=".*torch.classes.*")
+warnings.filterwarnings("ignore", message=".*Tried to instantiate class '__path__._path'.*")  # Supressão adicional
 
 # Definir o dispositivo (CPU ou GPU)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -660,6 +661,11 @@ def compute_metrics(model, dataloader, classes, model_name, run_id):
     report = classification_report(all_labels, all_preds, target_names=classes, output_dict=True)
     report_df = pd.DataFrame(report).transpose()
     st.text("Relatório de Classificação:")
+
+    # Converter colunas numéricas para tipos adequados
+    numeric_cols = report_df.select_dtypes(include=[np.float64]).columns
+    report_df[numeric_cols] = report_df[numeric_cols].astype(float)
+
     st.write(report_df)
 
     # Salvar relatório de classificação
@@ -779,6 +785,12 @@ def compute_metrics(model, dataloader, classes, model_name, run_id):
 
     # Salvar métricas em arquivo CSV
     metrics_df = pd.DataFrame([metrics])
+
+    # Converter colunas booleanas em strings ou numéricas
+    for col in metrics_df.columns:
+        if metrics_df[col].dtype == 'bool':
+            metrics_df[col] = metrics_df[col].astype(str)
+
     metrics_filename = f'metrics_{model_name}_run{run_id}.csv'
     metrics_df.to_csv(metrics_filename, index=False)
     st.write(f"Métricas salvas como `{metrics_filename}`")
@@ -943,6 +955,12 @@ def perform_clustering(model, dataloader, classes, model_name, run_id):
         'Agglomerative_NMI': nmi_agglo
     }
     clustering_metrics_df = pd.DataFrame([clustering_metrics])
+
+    # Converter colunas booleanas em strings ou numéricas
+    for col in clustering_metrics_df.columns:
+        if clustering_metrics_df[col].dtype == 'bool':
+            clustering_metrics_df[col] = clustering_metrics_df[col].astype(str)
+
     clustering_metrics_filename = f'clustering_metrics_{model_name}_run{run_id}.csv'
     clustering_metrics_df.to_csv(clustering_metrics_filename, index=False)
     st.write(f"Métricas de clusterização salvas como `{clustering_metrics_filename}`")
@@ -1085,7 +1103,7 @@ def main():
     # Layout da página
     if os.path.exists('capa.png'):
         try:
-            st.image('capa.png', width=100, caption='Laboratório de Educação e Inteligência Artificial - Geomaker. "A melhor forma de prever o futuro é inventá-lo." - Alan Kay', use_container_width=True)
+            st.image('capa.png', width=100, caption='Laboratório de Educação e Inteligência Artificial - Geomaker. "A melhor forma de prever o futuro é inventá-lo." - Alan Kay', use_column_width=True)
         except UnidentifiedImageError:
             st.warning("Imagem 'capa.png' não pôde ser carregada ou está corrompida.")
     else:
@@ -1368,6 +1386,7 @@ def main():
 
             except Exception as e:
                 st.error(f"Erro durante o treinamento múltiplo: {e}")
+
 
     # Opções de carregamento do modelo
     st.header("Opções de Carregamento do Modelo")

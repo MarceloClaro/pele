@@ -596,7 +596,7 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
         st.write("**Análise de Clusterização**")
         perform_clustering(model, test_loader, full_dataset.classes)
 
-        # Liberar memória
+        # Liberar memória dos data loaders
         del train_loader, valid_loader, test_loader
         torch.cuda.empty_cache()  # Limpar cache da GPU
         gc.collect()
@@ -1012,6 +1012,9 @@ def main():
     if 'all_model_metrics' not in st.session_state:
         st.session_state['all_model_metrics'] = []
 
+    # Inicializar lista para armazenar modelos treinados
+    trained_models = []
+
     # Uploader de arquivo ZIP fora do botão para garantir que o arquivo seja carregado antes do treinamento
     zip_file = st.file_uploader("Upload do arquivo ZIP com as imagens", type=["zip"], key="zip_file_uploader_main_multiple")
 
@@ -1048,18 +1051,13 @@ def main():
                         st.session_state['all_model_metrics'].append(metrics)
                         st.success(f"Treinamento do Modelo {i+1} ({model_name}), Execução {run} concluído!")
 
-                        # Opção para baixar o modelo treinado
-                        st.write(f"Faça o download do modelo treinado para o Modelo {i+1} ({model_name}), Execução {run}:")
-                        buffer = io.BytesIO()
-                        torch.save(model.state_dict(), buffer)
-                        buffer.seek(0)
-                        st.download_button(
-                            label=f"Download do Modelo {model_name}_Execução_{run}",
-                            data=buffer,
-                            file_name=f"{model_name}_exec_{run}.pth",
-                            mime="application/octet-stream",
-                            key=f"download_model_button_{i+1}_{run}"
-                        )
+                        # Armazenar o modelo treinado na lista
+                        trained_models.append({
+                            'model': model,
+                            'model_name': model_name,
+                            'run_id': run,
+                            'classes': classes
+                        })
 
                         # Limpar cache e liberar memória
                         del model
@@ -1068,6 +1066,37 @@ def main():
 
                 # Limpar o diretório temporário
                 shutil.rmtree(temp_dir)
+
+                # Exibir opções de download após o treinamento de todos os modelos
+                if trained_models:
+                    st.header("Download dos Modelos Treinados")
+                    for idx, trained_model_info in enumerate(trained_models):
+                        model = trained_model_info['model']
+                        model_name = trained_model_info['model_name']
+                        run_id = trained_model_info['run_id']
+                        classes = trained_model_info['classes']
+
+                        st.write(f"**Modelo {idx+1}: {model_name} - Execução {run_id}**")
+                        buffer = io.BytesIO()
+                        torch.save(model.state_dict(), buffer)
+                        buffer.seek(0)
+                        st.download_button(
+                            label=f"Download do Modelo {model_name}_Execução_{run_id}",
+                            data=buffer,
+                            file_name=f"{model_name}_exec_{run_id}.pth",
+                            mime="application/octet-stream",
+                            key=f"download_model_button_{model_name}_{run_id}"
+                        )
+
+                        # Salvar as classes em um arquivo
+                        classes_data = "\n".join(classes)
+                        st.download_button(
+                            label=f"Download das Classes para {model_name}_Execução_{run_id}",
+                            data=classes_data,
+                            file_name=f"classes_{model_name}_exec_{run_id}.txt",
+                            mime="text/plain",
+                            key=f"download_classes_button_{model_name}_{run_id}"
+                        )
 
             except Exception as e:
                 st.error(f"Erro durante o treinamento múltiplo: {e}")

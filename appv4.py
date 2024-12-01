@@ -41,17 +41,17 @@ from scipy import stats
 import uuid  # Importação do módulo uuid para gerar identificadores únicos
 from statsmodels.stats.multicomp import pairwise_tukeyhsd  # Importação para Tukey HSD
 
-# Supressão dos avisos relacionados ao torch.classes
+# Supressão dos avisos relacionados ao torch.classes e outros específicos
 warnings.filterwarnings("ignore", category=UserWarning, message=".*torch.classes.*")
 warnings.filterwarnings("ignore", message=".*Tried to instantiate class '__path__._path'.*")  # Supressão adicional
 warnings.filterwarnings("ignore", category=FutureWarning, message=".*use_column_width.*")  # Supressão de use_column_width
+warnings.filterwarnings("ignore", category=FutureWarning, message=".*torch.load.*")  # Supressão específica para torch.load
 
 # Definir o dispositivo (CPU ou GPU)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Configurações para tornar os gráficos mais bonitos
 sns.set_style('whitegrid')
-
 
 def set_seed(seed):
     """
@@ -65,7 +65,6 @@ def set_seed(seed):
     # As linhas abaixo são recomendadas para garantir reprodutibilidade
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
-
 
 set_seed(42)  # Definir a seed para reprodutibilidade
 
@@ -91,7 +90,6 @@ test_transforms = transforms.Compose([
     transforms.ToTensor(),
 ])
 
-
 # Dataset personalizado para classificação
 class CustomDataset(torch.utils.data.Dataset):
     def __init__(self, dataset, transform=None):
@@ -107,7 +105,6 @@ class CustomDataset(torch.utils.data.Dataset):
             image = self.transform(image)
         return image, label
 
-
 def seed_worker(worker_id):
     """
     Função para definir a seed em cada worker do DataLoader.
@@ -115,7 +112,6 @@ def seed_worker(worker_id):
     worker_seed = torch.initial_seed() % 2**32
     np.random.seed(worker_seed)
     random.seed(worker_seed)
-
 
 def visualize_data(dataset, classes):
     """
@@ -146,7 +142,6 @@ def visualize_data(dataset, classes):
         )
     if btn:
         st.success("Visualização do conjunto de dados baixada com sucesso!")
-
 
 def plot_class_distribution(dataset, classes):
     """
@@ -195,7 +190,6 @@ def plot_class_distribution(dataset, classes):
     if btn:
         st.success("Distribuição das classes baixada com sucesso!")
 
-
 def get_model(model_name, num_classes, dropout_p=0.5, fine_tune=False):
     """
     Retorna o modelo pré-treinado selecionado para classificação.
@@ -235,7 +229,6 @@ def get_model(model_name, num_classes, dropout_p=0.5, fine_tune=False):
 
     model = model.to(device)
     return model
-
 
 def apply_transforms_and_get_embeddings(dataset, model, transform, batch_size=16):
     """
@@ -288,7 +281,6 @@ def apply_transforms_and_get_embeddings(dataset, model, transform, batch_size=16
 
     return df
 
-
 def display_all_augmented_images(df, class_names, max_images=None):
     """
     Exibe todas as imagens augmentadas do DataFrame de forma organizada.
@@ -316,7 +308,6 @@ def display_all_augmented_images(df, class_names, max_images=None):
                 label = df.iloc[idx]['label']
                 with cols[col]:
                     st.image(image, caption=class_names[label], use_container_width=True)
-
 
 def visualize_embeddings(df, class_names):
     """
@@ -363,7 +354,6 @@ def visualize_embeddings(df, class_names):
         )
     if btn:
         st.success("Visualização dos embeddings baixada com sucesso!")
-
 
 def train_model(train_loader, valid_loader, test_loader, num_classes, model_name, fine_tune, epochs,
                learning_rate, batch_size, use_weighted_loss, l2_lambda, patience,
@@ -601,7 +591,6 @@ def train_model(train_loader, valid_loader, test_loader, num_classes, model_name
 
     return model, st.session_state['classes'], metrics
 
-
 def plot_metrics(train_losses, valid_losses, train_accuracies, valid_accuracies, model_name, run_id):
     """
     Plota os gráficos de perda e acurácia e salva-os em arquivos.
@@ -642,7 +631,6 @@ def plot_metrics(train_losses, valid_losses, train_accuracies, valid_accuracies,
         )
     if btn:
         st.success("Gráficos finais de perda e acurácia baixados com sucesso!")
-
 
 def compute_metrics(model, dataloader, classes, model_name, run_id):
     """
@@ -819,7 +807,6 @@ def compute_metrics(model, dataloader, classes, model_name, run_id):
 
     return metrics
 
-
 def error_analysis(model, dataloader, classes, model_name, run_id):
     """
     Realiza análise de erros mostrando algumas imagens mal classificadas.
@@ -872,7 +859,6 @@ def error_analysis(model, dataloader, classes, model_name, run_id):
             st.success("Imagens mal classificadas baixadas com sucesso!")
     else:
         st.write("Nenhuma imagem mal classificada encontrada.")
-
 
 def perform_clustering(model, dataloader, classes, model_name, run_id):
     """
@@ -988,7 +974,6 @@ def perform_clustering(model, dataloader, classes, model_name, run_id):
     if btn:
         st.success("Métricas de clusterização baixadas com sucesso!")
 
-
 def evaluate_image(model, image, classes):
     """
     Avalia uma única imagem e retorna a classe predita e a confiança.
@@ -1001,7 +986,6 @@ def evaluate_image(model, image, classes):
     class_idx = predicted.item()
     class_name = classes[class_idx]
     return class_name, confidence.item()
-
 
 def visualize_activations(model, image, class_names, model_name, run_id):
     """
@@ -1021,6 +1005,16 @@ def visualize_activations(model, image, class_names, model_name, run_id):
 
     # Criar o objeto CAM usando torchcam
     cam_extractor = SmoothGradCAMpp(model, target_layer=target_layer)
+
+    # Habilitar gradientes para a camada alvo
+    try:
+        # Obter a camada alvo
+        target_module = dict(model.named_modules())[target_layer]
+        for param in target_module.parameters():
+            param.requires_grad = True
+    except KeyError:
+        st.error(f"Camada alvo '{target_layer}' não encontrada no modelo {model_name}.")
+        return
 
     # Ativar Grad-CAM
     with torch.set_grad_enabled(True):
@@ -1073,7 +1067,6 @@ def visualize_activations(model, image, class_names, model_name, run_id):
     # Limpar os hooks após a visualização
     cam_extractor.clear_hooks()
 
-
 def perform_anova(data, groups):
     """
     Realiza a análise ANOVA para comparar as médias entre diferentes grupos.
@@ -1081,7 +1074,6 @@ def perform_anova(data, groups):
     group_list = [data[groups == group] for group in np.unique(groups)]
     f_val, p_val = stats.f_oneway(*group_list)
     return f_val, p_val
-
 
 def visualize_anova_results(f_val, p_val):
     """
@@ -1092,7 +1084,6 @@ def visualize_anova_results(f_val, p_val):
         st.write("Os resultados são estatisticamente significativos. Existe diferença significativa entre os grupos.")
     else:
         st.write("Os resultados não são estatisticamente significativos. Não foi encontrada diferença significativa entre os grupos.")
-
 
 def main():
     # Definir o caminho do ícone
@@ -1312,19 +1303,18 @@ def main():
                 if btn:
                     st.success("DataFrame de embeddings baixado com sucesso!")
 
-                # Treinar cada modelo selecionado
                 for i, model_name in enumerate(model_list):
                     for run in range(1, runs_per_model + 1):
                         st.write(f"**Treinando Modelo {i + 1}/{len(model_list)} ({model_name}) - Execução {run}/{runs_per_model}**")
                         model_id = f"model_{i + 1}"
-                        run_id = run
+                        current_run_id = run
 
                         # Chamar a função train_model com os datasets pré-processados
                         model_data = train_model(
                             train_loader, valid_loader, test_loader, num_classes, model_name, fine_tune,
                             epochs, learning_rate, batch_size,
                             use_weighted_loss, l2_lambda, patience,
-                            model_id=model_id, run_id=run_id
+                            model_id=model_id, run_id=current_run_id
                         )
 
                         if model_data is None:
@@ -1761,7 +1751,6 @@ def main():
 
     # Encerrar a aplicação
     st.write("Obrigado por utilizar o aplicativo!")
-
 
 if __name__ == "__main__":
     main()

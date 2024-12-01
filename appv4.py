@@ -1183,8 +1183,7 @@ def main():
     else:
         st.sidebar.write("Nenhum treinamento realizado ainda.")
 
-    # Botão para limpar a memória e o histórico
-    st.sidebar.button("Limpar Memória")
+    # Botão para limpar a memória
     if st.sidebar.button("Limpar Memória"):
         gc.collect()
         torch.cuda.empty_cache()
@@ -1267,6 +1266,7 @@ def main():
                         return
                 except Exception as e:
                     st.error(f"Erro ao carregar as classes: {e}")
+
     elif model_option == "Treinar um novo modelo":
         # Upload do arquivo ZIP
         zip_file_single = st.file_uploader("Upload do arquivo ZIP com as imagens", type=["zip"], key="zip_file_uploader_single")
@@ -1504,8 +1504,6 @@ def main():
     # Documentação dos Procedimentos
     st.write("### Documentação dos Procedimentos")
     st.write("Todas as etapas foram cuidadosamente registradas. Utilize esta documentação para reproduzir o experimento e analisar os resultados.")
-
-    # Monitoramento de Recursos (já adicionado no sidebar)
 
     # Encerrar a aplicação
     st.write("Obrigado por utilizar o aplicativo!")

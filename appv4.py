@@ -991,25 +991,32 @@ def main():
     st.header("Treinamento de Múltiplos Modelos para Análise Estatística")
     st.write("Treine múltiplos modelos com diferentes configurações para avaliar estatisticamente o desempenho.")
 
-    # Configurações para múltiplos modelos
-    runs_per_model = st.number_input("Número de Execuções por Modelo:", min_value=1, max_value=10, value=3, step=1, key="runs_per_model")
+    # Usando st.form para agrupar os widgets e garantir que as entradas sejam submetidas juntas
+    with st.form(key='training_form'):
+        # Configurações para múltiplos modelos
+        runs_per_model = st.number_input("Número de Execuções por Modelo:", min_value=1, max_value=10, value=3, step=1, key="runs_per_model")
 
-    # Checkboxes para seleção de modelos
-    st.write("Selecione os modelos que deseja treinar:")
-    if 'model_selection' not in st.session_state:
-        st.session_state['model_selection'] = {}
-    st.session_state['model_selection']['ResNet18'] = st.checkbox('ResNet18', value=True, key='model_resnet18')
-    st.session_state['model_selection']['ResNet50'] = st.checkbox('ResNet50', value=True, key='model_resnet50')
-    st.session_state['model_selection']['DenseNet121'] = st.checkbox('DenseNet121', value=True, key='model_densenet121')
+        # Checkboxes para seleção de modelos
+        st.write("Selecione os modelos que deseja treinar:")
+        model_resnet18 = st.checkbox('ResNet18', value=True, key='model_resnet18')
+        model_resnet50 = st.checkbox('ResNet50', value=True, key='model_resnet50')
+        model_densenet121 = st.checkbox('DenseNet121', value=True, key='model_densenet121')
 
-    # Uploader de arquivo ZIP
-    zip_file = st.file_uploader("Upload do arquivo ZIP com as imagens", type=["zip"], key="zip_file_uploader_main_multiple")
+        # Uploader de arquivo ZIP
+        zip_file = st.file_uploader("Upload do arquivo ZIP com as imagens", type=["zip"], key="zip_file_uploader_main_multiple")
 
-    # Botão para iniciar o treinamento múltiplo
-    if st.button("Iniciar Treinamento Múltiplo"):
-        model_selection = st.session_state['model_selection']
+        # Botão para iniciar o treinamento múltiplo
+        submit_button = st.form_submit_button(label='Iniciar Treinamento Múltiplo')
+
+    if submit_button:
+        # Capturar as seleções dos modelos
+        model_selection = {
+            'ResNet18': model_resnet18,
+            'ResNet50': model_resnet50,
+            'DenseNet121': model_densenet121
+        }
         # Lista de modelos selecionados na ordem fixa
-        model_list = [model_name for model_name in ['ResNet18', 'ResNet50', 'DenseNet121'] if model_selection.get(model_name, False)]
+        model_list = [model_name for model_name in ['ResNet18', 'ResNet50', 'DenseNet121'] if model_selection[model_name]]
 
         if len(model_list) == 0:
             st.error("Por favor, selecione pelo menos um modelo para treinar.")

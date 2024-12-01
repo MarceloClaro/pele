@@ -3,6 +3,7 @@ import zipfile
 import shutil
 import tempfile
 import random
+import json
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -34,7 +35,6 @@ import io
 import warnings
 from datetime import datetime
 from scipy import stats
-import json
 
 # Supressão dos avisos relacionados ao torch.classes
 warnings.filterwarnings("ignore", category=UserWarning, message=".*torch.classes.*")
@@ -123,10 +123,9 @@ def visualize_data(dataset, classes):
         axes[i].imshow(image)
         axes[i].set_title(classes[label])
         axes[i].axis('off')
-    # Salvar a figura
-    fig_filename = 'dataset_samples.png'
-    fig.savefig(fig_filename)
-    st.write(f"Amostras salvas como {fig_filename}")
+    plt.tight_layout()
+    plt.savefig("visualize_data.png")
+    st.image("visualize_data.png", caption='Exemplos do Conjunto de Dados')
     plt.close(fig)  # Fechar a figura para liberar memória
 
 
@@ -160,10 +159,9 @@ def plot_class_distribution(dataset, classes):
     ax.set_xlabel("Classes")
     ax.set_ylabel("Número de Imagens")
 
-    # Salvar a figura
-    fig_filename = 'class_distribution.png'
-    fig.savefig(fig_filename)
-    st.write(f"Distribuição de classes salva como {fig_filename}")
+    plt.tight_layout()
+    plt.savefig("class_distribution.png")
+    st.image("class_distribution.png", caption='Distribuição das Classes')
     plt.close(fig)  # Fechar a figura para liberar memória
 
 
@@ -269,38 +267,29 @@ def display_all_augmented_images(df, class_names, max_images=None):
         st.write(f"**Visualização das Primeiras {max_images} Imagens após Data Augmentation:**")
     else:
         st.write("**Visualização de Todas as Imagens após Data Augmentation:**")
-    
+
     num_images = len(df)
     if num_images == 0:
         st.write("Nenhuma imagem para exibir.")
         return
-    
+
     cols_per_row = 5  # Número de colunas por linha
     rows = (num_images + cols_per_row - 1) // cols_per_row  # Calcula o número de linhas necessárias
-    
-    # Criar uma pasta para salvar as imagens
-    os.makedirs('augmented_images', exist_ok=True)
 
-    image_paths = []
-
-    for idx in range(num_images):
-        image = df.iloc[idx]['augmented_image']
-        label = df.iloc[idx]['label']
-        image_pil = Image.fromarray((image * 255).astype(np.uint8))
-        image_filename = f'augmented_images/image_{idx+1}_{class_names[label]}.png'
-        image_pil.save(image_filename)
-        image_paths.append(image_filename)
-
-    st.write(f"Imagens augmentadas salvas na pasta 'augmented_images'")
+    for row in range(rows):
+        cols = st.columns(cols_per_row)
+        for col in range(cols_per_row):
+            idx = row * cols_per_row + col
+            if idx < num_images:
+                image = df.iloc[idx]['augmented_image']
+                label = df.iloc[idx]['label']
+                with cols[col]:
+                    st.image(image, caption=class_names[label], use_column_width=True)
 
 
-def visualize_embeddings(df, class_names, model_name, run_id):
+def visualize_embeddings(df, class_names):
     """
     Reduz a dimensionalidade dos embeddings e os visualiza em 2D.
-
-    Args:
-        df (pd.DataFrame): DataFrame contendo os embeddings e rótulos.
-        class_names (list): Lista com os nomes das classes.
     """
     embeddings = np.vstack(df['embedding'].values)
     labels = df['label'].values
@@ -326,18 +315,11 @@ def visualize_embeddings(df, class_names, model_name, run_id):
     plt.xlabel('Componente Principal 1')
     plt.ylabel('Componente Principal 2')
 
-    # Salvar a figura
-    fig_filename = f'embeddings_{model_name}_run{run_id}.png'
-    plt.savefig(fig_filename)
-    st.write(f"Embeddings salvos como {fig_filename}")
+    # Salvar o plot
+    plt.tight_layout()
+    plt.savefig("embeddings_pca.png")
+    st.image("embeddings_pca.png", caption='Visualização dos Embeddings com PCA')
     plt.close()  # Fechar a figura para liberar memória
-
-
-def save_config(config, model_name, run_id):
-    config_filename = f'config_{model_name}_run{run_id}.json'
-    with open(config_filename, 'w') as f:
-        json.dump(config, f, indent=4)
-    st.write(f"Configurações salvas como {config_filename}")
 
 
 def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_rate, batch_size, train_split, valid_split, use_weighted_loss, l2_lambda, patience, model_id=None, run_id=None):
@@ -356,18 +338,20 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
             'Épocas': epochs,
             'Taxa de Aprendizagem': learning_rate,
             'Tamanho do Lote': batch_size,
+            'Train Split': train_split,
+            'Valid Split': valid_split,
             'L2 Regularization': l2_lambda,
             'Paciência Early Stopping': patience,
-            'Data/Hora': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            'Use Weighted Loss': use_weighted_loss
         }
-        config_df = pd.DataFrame({
-            'Parâmetro': list(config.keys()),
-            'Valor': list(config.values())
-        })
+        config_df = pd.DataFrame(list(config.items()), columns=['Parâmetro', 'Valor'])
         st.table(config_df)
 
-        # Salvar as configurações
-        save_config(config, model_name, run_id)
+        # Salvar configurações em arquivo JSON
+        config_filename = f'config_{model_name}_run{run_id}.json'
+        with open(config_filename, 'w') as f:
+            json.dump(config, f, indent=4)
+        st.write(f"Configurações salvas como `{config_filename}`")
 
         # Ajustar o batch size para modelos maiores
         if model_name in ['ResNet50', 'DenseNet121']:
@@ -428,33 +412,30 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
         valid_df['class_name'] = valid_df['label'].map(idx_to_class)
         test_df['class_name'] = test_df['label'].map(idx_to_class)
 
-        # Salvar dataframes em CSV
-        train_df_filename = f'train_df_{model_name}_run{run_id}.csv'
-        valid_df_filename = f'valid_df_{model_name}_run{run_id}.csv'
-        test_df_filename = f'test_df_{model_name}_run{run_id}.csv'
-        train_df.to_csv(train_df_filename, index=False)
-        valid_df.to_csv(valid_df_filename, index=False)
-        test_df.to_csv(test_df_filename, index=False)
-        st.write(f"Dataframes salvos como {train_df_filename}, {valid_df_filename}, e {test_df_filename}")
+        # Exibir dataframes no Streamlit sem a coluna 'augmented_image' e sem limitar a 5 linhas
+        st.write("**Dataframe do Conjunto de Treinamento com Data Augmentation e Embeddings:**")
+        st.dataframe(train_df.drop(columns=['augmented_image']))
+
+        st.write("**Dataframe do Conjunto de Validação:**")
+        st.dataframe(valid_df.drop(columns=['augmented_image']))
+
+        st.write("**Dataframe do Conjunto de Teste:**")
+        st.dataframe(test_df.drop(columns=['augmented_image']))
 
         # Exibir todas as imagens augmentadas (ou limitar conforme necessário)
         display_all_augmented_images(train_df, full_dataset.classes, max_images=100)  # Ajuste 'max_images' conforme necessário
 
         # Visualizar os embeddings
-        visualize_embeddings(train_df, full_dataset.classes, model_name, run_id)
+        visualize_embeddings(train_df, full_dataset.classes)
 
         # Exibir contagem de imagens por classe nos conjuntos de treinamento e teste
         st.write("**Distribuição das Classes no Conjunto de Treinamento:**")
         train_class_counts = train_df['class_name'].value_counts()
-        train_class_counts_filename = f'train_class_counts_{model_name}_run{run_id}.csv'
-        train_class_counts.to_csv(train_class_counts_filename)
-        st.write(f"Distribuição de classes de treinamento salva como {train_class_counts_filename}")
+        st.bar_chart(train_class_counts)
 
         st.write("**Distribuição das Classes no Conjunto de Teste:**")
         test_class_counts = test_df['class_name'].value_counts()
-        test_class_counts_filename = f'test_class_counts_{model_name}_run{run_id}.csv'
-        test_class_counts.to_csv(test_class_counts_filename)
-        st.write(f"Distribuição de classes de teste salva como {test_class_counts_filename}")
+        st.bar_chart(test_class_counts)
 
         # Atualizar os datasets com as transformações para serem usados nos DataLoaders
         train_dataset = CustomDataset(torch.utils.data.Subset(full_dataset, train_indices), transform=train_transforms)
@@ -507,6 +488,11 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
         best_valid_loss = float('inf')
         epochs_no_improve = 0
         best_model_wts = None  # Inicializar
+
+        # Placeholders para gráficos dinâmicos
+        placeholder = st.empty()
+        progress_bar = st.progress(0)
+        epoch_text = st.empty()
 
         # Treinamento
         for epoch in range(epochs):
@@ -561,6 +547,36 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
             st.session_state[valid_losses_key].append(valid_epoch_loss)
             st.session_state[valid_accuracies_key].append(valid_epoch_acc.item())
 
+            # Atualizar gráficos dinamicamente
+            with placeholder.container():
+                fig, ax = plt.subplots(1, 2, figsize=(14, 5))
+
+                # Gráfico de Perda
+                ax[0].plot(range(1, len(st.session_state[train_losses_key]) + 1), st.session_state[train_losses_key], label='Treino')
+                ax[0].plot(range(1, len(st.session_state[valid_losses_key]) + 1), st.session_state[valid_losses_key], label='Validação')
+                ax[0].set_title(f'Perda por Época - {model_name} (Execução {run_id})')
+                ax[0].set_xlabel('Épocas')
+                ax[0].set_ylabel('Perda')
+                ax[0].legend()
+
+                # Gráfico de Acurácia
+                ax[1].plot(range(1, len(st.session_state[train_accuracies_key]) + 1), st.session_state[train_accuracies_key], label='Treino')
+                ax[1].plot(range(1, len(st.session_state[valid_accuracies_key]) + 1), st.session_state[valid_accuracies_key], label='Validação')
+                ax[1].set_title(f'Acurácia por Época - {model_name} (Execução {run_id})')
+                ax[1].set_xlabel('Épocas')
+                ax[1].set_ylabel('Acurácia')
+                ax[1].legend()
+
+                plt.tight_layout()
+                plt.savefig(f'loss_accuracy_{model_name}_run{run_id}.png')
+                st.image(f'loss_accuracy_{model_name}_run{run_id}.png', caption='Perda e Acurácia por Época')
+                plt.close(fig)  # Fechar a figura para liberar memória
+
+            # Atualizar texto de progresso
+            progress = (epoch + 1) / epochs
+            progress_bar.progress(progress)
+            epoch_text.text(f'Época {epoch+1}/{epochs}')
+
             # Early Stopping
             if valid_epoch_loss < best_valid_loss:
                 best_valid_loss = valid_epoch_loss
@@ -594,11 +610,11 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
 
         # Análise de Erros
         st.write("**Análise de Erros**")
-        error_analysis(model, test_loader, full_dataset.classes, model_name, run_id)
+        error_analysis(model, test_loader, full_dataset.classes)
 
         # Clusterização e Análise Comparativa
         st.write("**Análise de Clusterização**")
-        perform_clustering(model, test_loader, full_dataset.classes, model_name, run_id)
+        perform_clustering(model, test_loader, full_dataset.classes)
 
         # Liberar memória dos data loaders
         del train_loader, valid_loader, test_loader
@@ -612,14 +628,10 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
 
         return model, full_dataset.classes, metrics
 
-    except Exception as e:
-        st.error(f"Ocorreu um erro durante o treinamento do modelo {model_name}: {e}")
-        return None
-
 
 def plot_metrics(train_losses, valid_losses, train_accuracies, valid_accuracies, model_name, run_id):
     """
-    Plota os gráficos de perda e acurácia e salva em arquivos.
+    Plota os gráficos de perda e acurácia e salva-os em arquivos.
     """
     epochs_range = range(1, len(train_losses) + 1)
     fig, ax = plt.subplots(1, 2, figsize=(14, 5))
@@ -640,16 +652,27 @@ def plot_metrics(train_losses, valid_losses, train_accuracies, valid_accuracies,
     ax[1].set_ylabel('Acurácia')
     ax[1].legend()
 
-    # Salvar a figura
-    plot_filename = f'loss_accuracy_{model_name}_run{run_id}.png'
+    plt.tight_layout()
+    plot_filename = f'loss_accuracy_final_{model_name}_run{run_id}.png'
     fig.savefig(plot_filename)
-    st.write(f"Gráficos de perda e acurácia salvos como {plot_filename}")
+    st.image(plot_filename, caption='Perda e Acurácia Finais')
     plt.close(fig)  # Fechar a figura para liberar memória
+
+    # Disponibilizar para download
+    with open(plot_filename, "rb") as file:
+        btn = st.download_button(
+            label="Download dos Gráficos de Perda e Acurácia",
+            data=file,
+            file_name=plot_filename,
+            mime="image/png"
+        )
+    if btn:
+        st.success("Gráficos baixados com sucesso!")
 
 
 def compute_metrics(model, dataloader, classes, model_name, run_id):
     """
-    Calcula métricas detalhadas e salva matriz de confusão e relatório de classificação.
+    Calcula métricas detalhadas e exibe matriz de confusão e relatório de classificação.
     """
     model.eval()
     all_preds = []
@@ -672,9 +695,13 @@ def compute_metrics(model, dataloader, classes, model_name, run_id):
     # Relatório de Classificação
     report = classification_report(all_labels, all_preds, target_names=classes, output_dict=True)
     report_df = pd.DataFrame(report).transpose()
+    st.text("Relatório de Classificação:")
+    st.write(report_df)
+
+    # Salvar relatório de classificação
     report_filename = f'classification_report_{model_name}_run{run_id}.csv'
     report_df.to_csv(report_filename)
-    st.write(f"Relatório de classificação salvo como {report_filename}")
+    st.write(f"Relatório de classificação salvo como `{report_filename}`")
 
     # Matriz de Confusão Normalizada
     cm = confusion_matrix(all_labels, all_preds, normalize='true')
@@ -683,10 +710,22 @@ def compute_metrics(model, dataloader, classes, model_name, run_id):
     ax.set_xlabel('Predito')
     ax.set_ylabel('Verdadeiro')
     ax.set_title('Matriz de Confusão Normalizada')
+    plt.tight_layout()
     cm_filename = f'confusion_matrix_{model_name}_run{run_id}.png'
     fig.savefig(cm_filename)
-    st.write(f"Matriz de confusão salva como {cm_filename}")
+    st.image(cm_filename, caption='Matriz de Confusão Normalizada')
     plt.close(fig)  # Fechar a figura para liberar memória
+
+    # Disponibilizar para download
+    with open(cm_filename, "rb") as file:
+        btn = st.download_button(
+            label="Download da Matriz de Confusão",
+            data=file,
+            file_name=cm_filename,
+            mime="image/png"
+        )
+    if btn:
+        st.success("Matriz de Confusão baixada com sucesso!")
 
     # Curva ROC
     roc_auc = None
@@ -700,15 +739,44 @@ def compute_metrics(model, dataloader, classes, model_name, run_id):
         ax.set_ylabel('Taxa de Verdadeiros Positivos')
         ax.set_title('Curva ROC')
         ax.legend(loc='lower right')
+        plt.tight_layout()
         roc_filename = f'roc_curve_{model_name}_run{run_id}.png'
         fig.savefig(roc_filename)
-        st.write(f"Curva ROC salva como {roc_filename}")
+        st.image(roc_filename, caption='Curva ROC')
         plt.close(fig)  # Fechar a figura para liberar memória
+
+        # Disponibilizar para download
+        with open(roc_filename, "rb") as file:
+            btn = st.download_button(
+                label="Download da Curva ROC",
+                data=file,
+                file_name=roc_filename,
+                mime="image/png"
+            )
+        if btn:
+            st.success("Curva ROC baixada com sucesso!")
     else:
         # Multiclasse
         binarized_labels = label_binarize(all_labels, classes=range(len(classes)))
         roc_auc = roc_auc_score(binarized_labels, np.array(all_probs), average='weighted', multi_class='ovr')
         st.write(f"AUC-ROC Média Ponderada: {roc_auc:.4f}")
+
+        # Salvar AUC-ROC
+        auc_filename = f'auc_roc_{model_name}_run{run_id}.txt'
+        with open(auc_filename, 'w') as f:
+            f.write(f"AUC-ROC Média Ponderada: {roc_auc:.4f}")
+        st.write(f"AUC-ROC Média Ponderada salvo como `{auc_filename}`")
+
+        # Disponibilizar para download
+        with open(auc_filename, "rb") as file:
+            btn = st.download_button(
+                label="Download do AUC-ROC",
+                data=file,
+                file_name=auc_filename,
+                mime="text/plain"
+            )
+        if btn:
+            st.success("AUC-ROC baixado com sucesso!")
 
     # Calcule as métricas de desempenho
     accuracy = report['accuracy']
@@ -728,16 +796,27 @@ def compute_metrics(model, dataloader, classes, model_name, run_id):
         'ROC_AUC': roc_auc if roc_auc is not None else np.nan
     }
 
-    # Salvar métricas em um arquivo CSV
+    # Salvar métricas em arquivo CSV
     metrics_df = pd.DataFrame([metrics])
     metrics_filename = f'metrics_{model_name}_run{run_id}.csv'
     metrics_df.to_csv(metrics_filename, index=False)
-    st.write(f"Métricas salvas como {metrics_filename}")
+    st.write(f"Métricas salvas como `{metrics_filename}`")
+
+    # Disponibilizar para download
+    with open(metrics_filename, "rb") as file:
+        btn = st.download_button(
+            label="Download das Métricas",
+            data=file,
+            file_name=metrics_filename,
+            mime="text/csv"
+        )
+    if btn:
+        st.success("Métricas baixadas com sucesso!")
 
     return metrics
 
 
-def error_analysis(model, dataloader, classes, model_name, run_id):
+def error_analysis(model, dataloader, classes):
     """
     Realiza análise de erros mostrando algumas imagens mal classificadas.
     """
@@ -770,16 +849,26 @@ def error_analysis(model, dataloader, classes, model_name, run_id):
             axes[i].imshow(image)
             axes[i].set_title(f"V: {classes[misclassified_labels[i]]}\nP: {classes[misclassified_preds[i]]}")
             axes[i].axis('off')
-        # Salvar a figura
-        error_fig_filename = f'error_analysis_{model_name}_run{run_id}.png'
-        fig.savefig(error_fig_filename)
-        st.write(f"Análise de erros salva como {error_fig_filename}")
+        plt.tight_layout()
+        plt.savefig(f'misclassified_{model_name}_run{run_id}.png')
+        st.image(f'misclassified_{model_name}_run{run_id}.png', caption='Exemplos de Erros de Classificação')
         plt.close(fig)  # Fechar a figura para liberar memória
+
+        # Disponibilizar para download
+        with open(f'misclassified_{model_name}_run{run_id}.png', "rb") as file:
+            btn = st.download_button(
+                label="Download das Imagens Mal Classificadas",
+                data=file,
+                file_name=f'misclassified_{model_name}_run{run_id}.png',
+                mime="image/png"
+            )
+        if btn:
+            st.success("Imagens mal classificadas baixadas com sucesso!")
     else:
         st.write("Nenhuma imagem mal classificada encontrada.")
 
 
-def perform_clustering(model, dataloader, classes, model_name, run_id):
+def perform_clustering(model, dataloader, classes):
     """
     Realiza a extração de features e aplica algoritmos de clusterização.
     """
@@ -822,22 +911,33 @@ def perform_clustering(model, dataloader, classes, model_name, run_id):
     fig, ax = plt.subplots(1, 2, figsize=(14, 6))
 
     # Gráfico KMeans
-    scatter = ax[0].scatter(features_2d[:, 0], features_2d[:, 1], c=clusters_kmeans, cmap='viridis')
+    scatter = ax[0].scatter(features_2d[:, 0], features_2d[:, 1], c=clusters_kmeans, cmap='viridis', alpha=0.6)
     legend1 = ax[0].legend(*scatter.legend_elements(), title="Clusters")
     ax[0].add_artist(legend1)
     ax[0].set_title('Clusterização com KMeans')
 
     # Gráfico Agglomerative Clustering
-    scatter = ax[1].scatter(features_2d[:, 0], features_2d[:, 1], c=clusters_agglo, cmap='viridis')
+    scatter = ax[1].scatter(features_2d[:, 0], features_2d[:, 1], c=clusters_agglo, cmap='viridis', alpha=0.6)
     legend1 = ax[1].legend(*scatter.legend_elements(), title="Clusters")
     ax[1].add_artist(legend1)
     ax[1].set_title('Clusterização Hierárquica')
 
-    # Salvar a figura
-    clustering_fig_filename = f'clustering_{model_name}_run{run_id}.png'
-    fig.savefig(clustering_fig_filename)
-    st.write(f"Resultados de clusterização salvos como {clustering_fig_filename}")
+    plt.tight_layout()
+    clustering_filename = f'clustering_{model_name}_run{run_id}.png'
+    fig.savefig(clustering_filename)
+    st.image(clustering_filename, caption='Resultados da Clusterização')
     plt.close(fig)  # Fechar a figura para liberar memória
+
+    # Disponibilizar para download
+    with open(clustering_filename, "rb") as file:
+        btn = st.download_button(
+            label="Download dos Resultados de Clusterização",
+            data=file,
+            file_name=clustering_filename,
+            mime="image/png"
+        )
+    if btn:
+        st.success("Resultados de clusterização baixados com sucesso!")
 
     # Métricas de Avaliação
     ari_kmeans = adjusted_rand_score(labels, clusters_kmeans)
@@ -845,20 +945,33 @@ def perform_clustering(model, dataloader, classes, model_name, run_id):
     ari_agglo = adjusted_rand_score(labels, clusters_agglo)
     nmi_agglo = normalized_mutual_info_score(labels, clusters_agglo)
 
+    st.write(f"**KMeans** - ARI: {ari_kmeans:.4f}, NMI: {nmi_kmeans:.4f}")
+    st.write(f"**Agglomerative Clustering** - ARI: {ari_agglo:.4f}, NMI: {nmi_agglo:.4f}")
+
+    # Salvar métricas de clusterização
     clustering_metrics = {
         'Model': model_name,
         'Run_ID': run_id,
-        'ARI_KMeans': ari_kmeans,
-        'NMI_KMeans': nmi_kmeans,
-        'ARI_Agglomerative': ari_agglo,
-        'NMI_Agglomerative': nmi_agglo
+        'KMeans_ARI': ari_kmeans,
+        'KMeans_NMI': nmi_kmeans,
+        'Agglomerative_ARI': ari_agglo,
+        'Agglomerative_NMI': nmi_agglo
     }
-
-    # Salvar métricas de clusterização
     clustering_metrics_df = pd.DataFrame([clustering_metrics])
     clustering_metrics_filename = f'clustering_metrics_{model_name}_run{run_id}.csv'
     clustering_metrics_df.to_csv(clustering_metrics_filename, index=False)
-    st.write(f"Métricas de clusterização salvas como {clustering_metrics_filename}")
+    st.write(f"Métricas de clusterização salvas como `{clustering_metrics_filename}`")
+
+    # Disponibilizar para download
+    with open(clustering_metrics_filename, "rb") as file:
+        btn = st.download_button(
+            label="Download das Métricas de Clusterização",
+            data=file,
+            file_name=clustering_metrics_filename,
+            mime="text/csv"
+        )
+    if btn:
+        st.success("Métricas de clusterização baixadas com sucesso!")
 
 
 def evaluate_image(model, image, classes):
@@ -875,7 +988,7 @@ def evaluate_image(model, image, classes):
     return class_name, confidence.item()
 
 
-def visualize_activations(model, image, class_names, model_name):
+def visualize_activations(model, image, class_names, model_name, run_id):
     """
     Visualiza as ativações na imagem usando Grad-CAM.
     """
@@ -924,11 +1037,22 @@ def visualize_activations(model, image, class_names, model_name):
     ax[1].set_title('Grad-CAM')
     ax[1].axis('off')
 
-    # Salvar a figura
-    activation_fig_filename = f'grad_cam_{model_name}.png'
-    fig.savefig(activation_fig_filename)
-    st.write(f"Ativações salvas como {activation_fig_filename}")
+    plt.tight_layout()
+    activation_filename = f'grad_cam_{model_name}_run{run_id}.png'
+    fig.savefig(activation_filename)
+    st.image(activation_filename, caption='Visualização de Grad-CAM')
     plt.close(fig)  # Fechar a figura para liberar memória
+
+    # Disponibilizar para download
+    with open(activation_filename, "rb") as file:
+        btn = st.download_button(
+            label="Download da Visualização de Grad-CAM",
+            data=file,
+            file_name=activation_filename,
+            mime="image/png"
+        )
+    if btn:
+        st.success("Visualização de Grad-CAM baixada com sucesso!")
 
     # Limpar os hooks após a visualização
     cam_extractor.clear_hooks()
@@ -946,7 +1070,7 @@ def visualize_anova_results(f_val, p_val):
     """
     Visualiza os resultados da análise ANOVA.
     """
-    st.write(f"Valor F: {f_val:.4f}, Valor p: {p_val:.4f}")
+    st.write(f"**Valor F:** {f_val:.4f}, **Valor p:** {p_val:.4f}")
     if p_val < 0.05:
         st.write("Os resultados são estatisticamente significativos.")
     else:
@@ -1009,21 +1133,28 @@ def main():
     l2_lambda = st.sidebar.number_input("L2 Regularization (Weight Decay):", min_value=0.0, max_value=0.1, value=0.01, step=0.01, key="l2_lambda")
     patience = st.sidebar.number_input("Paciência para Early Stopping:", min_value=1, max_value=10, value=3, step=1, key="patience")
     use_weighted_loss = st.sidebar.checkbox("Usar Perda Ponderada para Classes Desbalanceadas", value=False, key="use_weighted_loss")
-    st.sidebar.image("eu.ico", width=80)
+    if os.path.exists("eu.ico"):
+        try:
+            st.sidebar.image("eu.ico", width=80)
+        except UnidentifiedImageError:
+            st.sidebar.text("Imagem 'eu.ico' não pôde ser carregada ou está corrompida.")
+    else:
+        st.sidebar.text("Imagem 'eu.ico' não encontrada.")
+
     st.sidebar.write("""
-    Produzido pelo:
+    **Produzido pelo:**
 
     Projeto Geomaker + IA 
 
-    https://doi.org/10.5281/zenodo.13910277
+    [DOI:10.5281/zenodo.13910277](https://doi.org/10.5281/zenodo.13910277)
 
-    - Professor: Marcelo Claro.
+    - **Professor:** Marcelo Claro.
 
-    Contatos: marceloclaro@gmail.com
+    - **Contatos:** marceloclaro@gmail.com
 
-    Whatsapp: (88)981587145
+    - **Whatsapp:** (88)981587145
 
-    Instagram: [marceloclaro.geomaker](https://www.instagram.com/marceloclaro.geomaker/)
+    - **Instagram:** [marceloclaro.geomaker](https://www.instagram.com/marceloclaro.geomaker/)
     """)
 
     # Verificar se a soma dos splits é válida
@@ -1108,6 +1239,59 @@ def main():
                             'classes': classes
                         })
 
+                        # Salvar o modelo treinado
+                        model_filename = f'{model_name}_run{run}.pth'
+                        torch.save(model.state_dict(), model_filename)
+                        st.write(f"Modelo salvo como `{model_filename}`")
+
+                        # Salvar as classes em um arquivo
+                        classes_data = "\n".join(classes)
+                        classes_filename = f'classes_{model_name}_run{run}.txt'
+                        with open(classes_filename, 'w') as f:
+                            f.write(classes_data)
+                        st.write(f"Classes salvas como `{classes_filename}`")
+
+                        # Disponibilizar para download
+                        with open(model_filename, "rb") as file:
+                            btn = st.download_button(
+                                label=f"Download do Modelo {model_name}_Execução_{run}",
+                                data=file,
+                                file_name=model_filename,
+                                mime="application/octet-stream",
+                                key=f"download_model_button_{model_name}_{run}"
+                            )
+                        if btn:
+                            st.success(f"Modelo {model_name}_run{run} baixado com sucesso!")
+
+                        with open(classes_filename, "rb") as file:
+                            btn = st.download_button(
+                                label=f"Download das Classes para {model_name}_Execução_{run}",
+                                data=file,
+                                file_name=classes_filename,
+                                mime="text/plain",
+                                key=f"download_classes_button_{model_name}_{run}"
+                            )
+                        if btn:
+                            st.success(f"Classes {model_name}_run{run} baixadas com sucesso!")
+
+                        # Salvar métricas em arquivo CSV
+                        metrics_df = pd.DataFrame([metrics])
+                        metrics_filename = f'metrics_{model_name}_run{run}.csv'
+                        metrics_df.to_csv(metrics_filename, index=False)
+                        st.write(f"Métricas salvas como `{metrics_filename}`")
+
+                        # Disponibilizar para download
+                        with open(metrics_filename, "rb") as file:
+                            btn = st.download_button(
+                                label=f"Download das Métricas para {model_name}_Execução_{run}",
+                                data=file,
+                                file_name=metrics_filename,
+                                mime="text/csv",
+                                key=f"download_metrics_button_{model_name}_{run}"
+                            )
+                        if btn:
+                            st.success(f"Métricas {model_name}_run{run} baixadas com sucesso!")
+
                         # Limpar cache e liberar memória
                         del model
                         torch.cuda.empty_cache()
@@ -1116,44 +1300,27 @@ def main():
                 # Limpar o diretório temporário
                 shutil.rmtree(temp_dir)
 
-                # Exibir opções de download após o treinamento de todos os modelos
-                if trained_models:
-                    st.header("Download dos Modelos Treinados")
-                    for idx, trained_model_info in enumerate(trained_models):
-                        model = trained_model_info['model']
-                        model_name = trained_model_info['model_name']
-                        run_id = trained_model_info['run_id']
-                        classes = trained_model_info['classes']
-
-                        st.write(f"**Modelo {idx+1}: {model_name} - Execução {run_id}**")
-                        buffer = io.BytesIO()
-                        torch.save(model.state_dict(), buffer)
-                        buffer.seek(0)
-                        st.download_button(
-                            label=f"Download do Modelo {model_name}_Execução_{run_id}",
-                            data=buffer,
-                            file_name=f"{model_name}_exec_{run_id}.pth",
-                            mime="application/octet-stream",
-                            key=f"download_model_button_{model_name}_{run_id}"
-                        )
-
-                        # Salvar as classes em um arquivo
-                        classes_data = "\n".join(classes)
-                        st.download_button(
-                            label=f"Download das Classes para {model_name}_Execução_{run_id}",
-                            data=classes_data,
-                            file_name=f"classes_{model_name}_exec_{run_id}.txt",
-                            mime="text/plain",
-                            key=f"download_classes_button_{model_name}_{run_id}"
-                        )
-
                 # Exibir as métricas coletadas após o treinamento
                 if len(st.session_state['all_model_metrics']) > 0:
                     st.header("Métricas de Desempenho de Todos os Modelos")
                     metrics_df = pd.DataFrame(st.session_state['all_model_metrics'])
-                    metrics_df_filename = 'all_model_metrics.csv'
-                    metrics_df.to_csv(metrics_df_filename, index=False)
-                    st.write(f"Métricas de todos os modelos salvas como {metrics_df_filename}")
+                    st.dataframe(metrics_df)
+
+                    # Salvar métricas coletadas em um único arquivo
+                    all_metrics_filename = 'all_model_metrics.csv'
+                    metrics_df.to_csv(all_metrics_filename, index=False)
+                    st.write(f"Métricas de todos os modelos salvas como `{all_metrics_filename}`")
+
+                    # Disponibilizar para download
+                    with open(all_metrics_filename, "rb") as file:
+                        btn = st.download_button(
+                            label="Download das Métricas de Todos os Modelos",
+                            data=file,
+                            file_name=all_metrics_filename,
+                            mime="text/csv"
+                        )
+                    if btn:
+                        st.success("Métricas de todos os modelos baixadas com sucesso!")
 
                     # Calcular Intervalos de Confiança para Cada Métrica
                     st.subheader("Intervalos de Confiança para as Métricas de Desempenho")
@@ -1196,6 +1363,24 @@ def main():
                             tukey = pairwise_tukeyhsd(endog=data[metric], groups=data['Model'], alpha=0.05)
                             st.write(f"**{metric}:**")
                             st.text(tukey.summary())
+                            # Salvar o resumo do Tukey
+                            tukey_summary = tukey.summary().as_text()
+                            tukey_filename = f'tukey_{metric}_{model_name}_run{run_id}.txt'
+                            with open(tukey_filename, 'w') as f:
+                                f.write(tukey_summary)
+                            st.write(f"Resumo do Teste Tukey HSD salvo como `{tukey_filename}`")
+
+                            # Disponibilizar para download
+                            with open(tukey_filename, "rb") as file:
+                                btn = st.download_button(
+                                    label=f"Download do Resumo Tukey para {metric}",
+                                    data=file,
+                                    file_name=tukey_filename,
+                                    mime="text/plain",
+                                    key=f"download_tukey_{metric}_{model_name}_{run_id}"
+                                )
+                            if btn:
+                                st.success(f"Resumo Tukey para {metric} baixado com sucesso!")
                         else:
                             st.write(f"**{metric}:** Teste Tukey HSD não pode ser realizado. É necessário pelo menos dois modelos com pelo menos duas observações cada.")
 
@@ -1211,7 +1396,7 @@ def main():
         model_file = st.file_uploader("Faça upload do arquivo do modelo (.pt ou .pth)", type=["pt", "pth"], key="model_file_uploader_main")
         if model_file is not None and num_classes > 0:
             # Seleção do modelo
-            model_name = st.selectbox("Modelo Pré-treinado:", options=['ResNet18', 'ResNet50', 'DenseNet121'], key="model_name_single")
+            model_name = st.selectbox("Modelo Pré-treinado:", options=['ResNet18', 'ResNet50', 'DenseNet121'], key="model_name_single_load")
             # Carregar o modelo
             model = get_model(model_name, num_classes, dropout_p=0.5, fine_tune=False)
             if model is None:
@@ -1230,7 +1415,7 @@ def main():
                 return
 
             # Carregar as classes
-            classes_file = st.file_uploader("Faça upload do arquivo com as classes (classes.txt)", type=["txt"], key="classes_file_uploader_main")
+            classes_file = st.file_uploader("Faça upload do arquivo com as classes (classes.txt)", type=["txt"], key="classes_file_uploader_main_load")
             if classes_file is not None:
                 try:
                     classes = classes_file.read().decode("utf-8").splitlines()
@@ -1243,55 +1428,89 @@ def main():
 
     elif model_option == "Treinar um novo modelo":
         # Seleção do modelo
-        model_name = st.selectbox("Modelo Pré-treinado para Treinamento Único:", options=['ResNet18', 'ResNet50', 'DenseNet121'], key="model_name_single")
+        model_name = st.selectbox("Modelo Pré-treinado para Treinamento Único:", options=['ResNet18', 'ResNet50', 'DenseNet121'], key="model_name_single_train")
         # Upload do arquivo ZIP
-        zip_file = st.file_uploader("Upload do arquivo ZIP com as imagens", type=["zip"], key="zip_file_uploader")
+        zip_file = st.file_uploader("Upload do arquivo ZIP com as imagens", type=["zip"], key="zip_file_uploader_single")
         if zip_file is not None and num_classes > 0 and train_split + valid_split <= 0.95:
-            temp_dir = tempfile.mkdtemp()
-            zip_path = os.path.join(temp_dir, "uploaded.zip")
-            with open(zip_path, "wb") as f:
-                f.write(zip_file.read())
-            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                zip_ref.extractall(temp_dir)
-            data_dir = temp_dir
+            try:
+                temp_dir = tempfile.mkdtemp()
+                zip_path = os.path.join(temp_dir, "uploaded.zip")
+                with open(zip_path, "wb") as f:
+                    f.write(zip_file.read())
+                with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                    zip_ref.extractall(temp_dir)
+                data_dir = temp_dir
 
-            st.write("Iniciando o treinamento supervisionado...")
-            model_data = train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_rate, batch_size, train_split, valid_split, use_weighted_loss, l2_lambda, patience, model_id="single_run", run_id=1)
+                st.write("Iniciando o treinamento supervisionado...")
+                model_data = train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_rate, batch_size, train_split, valid_split, use_weighted_loss, l2_lambda, patience, model_id="single_run", run_id=1)
 
-            if model_data is None:
-                st.error("Erro no treinamento do modelo.")
+                if model_data is None:
+                    st.error("Erro no treinamento do modelo.")
+                    shutil.rmtree(temp_dir)
+                    return
+
+                model, classes, metrics = model_data
+                # O modelo e as classes já estão armazenados no st.session_state
+                st.success("Treinamento concluído!")
+
+                # Opção para baixar o modelo treinado
+                model_filename = f'{model_name}_run1.pth'
+                torch.save(model.state_dict(), model_filename)
+                st.write(f"Modelo salvo como `{model_filename}`")
+
+                # Salvar as classes em um arquivo
+                classes_data = "\n".join(classes)
+                classes_filename = f'classes_{model_name}_run1.txt'
+                with open(classes_filename, 'w') as f:
+                    f.write(classes_data)
+                st.write(f"Classes salvas como `{classes_filename}`")
+
+                # Disponibilizar para download
+                with open(model_filename, "rb") as file:
+                    btn = st.download_button(
+                        label="Download do Modelo",
+                        data=file,
+                        file_name=model_filename,
+                        mime="application/octet-stream",
+                        key="download_model_button_single"
+                    )
+                if btn:
+                    st.success("Modelo baixado com sucesso!")
+
+                with open(classes_filename, "rb") as file:
+                    btn = st.download_button(
+                        label="Download das Classes",
+                        data=file,
+                        file_name=classes_filename,
+                        mime="text/plain",
+                        key="download_classes_button_single"
+                    )
+                if btn:
+                    st.success("Classes baixadas com sucesso!")
+
+                # Salvar métricas em arquivo CSV
+                metrics_df = pd.DataFrame([metrics])
+                metrics_filename = f'metrics_{model_name}_run1.csv'
+                metrics_df.to_csv(metrics_filename, index=False)
+                st.write(f"Métricas salvas como `{metrics_filename}`")
+
+                # Disponibilizar para download
+                with open(metrics_filename, "rb") as file:
+                    btn = st.download_button(
+                        label="Download das Métricas",
+                        data=file,
+                        file_name=metrics_filename,
+                        mime="text/csv",
+                        key="download_metrics_button_single"
+                    )
+                if btn:
+                    st.success("Métricas baixadas com sucesso!")
+
+                # Limpar o diretório temporário
                 shutil.rmtree(temp_dir)
-                return
 
-            model, classes, metrics = model_data
-            # O modelo e as classes já estão armazenados no st.session_state
-            st.success("Treinamento concluído!")
-
-            # Opção para baixar o modelo treinado
-            st.write("Faça o download do modelo treinado:")
-            buffer = io.BytesIO()
-            torch.save(model.state_dict(), buffer)
-            buffer.seek(0)
-            st.download_button(
-                label="Download do Modelo",
-                data=buffer,
-                file_name="modelo_treinado.pth",
-                mime="application/octet-stream",
-                key="download_model_button"
-            )
-
-            # Salvar as classes em um arquivo
-            classes_data = "\n".join(classes)
-            st.download_button(
-                label="Download das Classes",
-                data=classes_data,
-                file_name="classes.txt",
-                mime="text/plain",
-                key="download_classes_button"
-            )
-
-            # Limpar o diretório temporário
-            shutil.rmtree(temp_dir)
+            except Exception as e:
+                st.error(f"Erro durante o treinamento do modelo único: {e}")
 
     # Avaliação de uma imagem individual
     st.header("Avaliação de Imagem")
@@ -1303,7 +1522,7 @@ def main():
             # Opção para carregar um modelo existente
             model_file_eval = st.file_uploader("Faça upload do arquivo do modelo (.pt ou .pth)", type=["pt", "pth"], key="model_file_uploader_eval")
             if model_file_eval is not None:
-                num_classes_eval = st.number_input("Número de Classes:", min_value=2, step=1, key="num_classes_eval")
+                num_classes_eval = st.number_input("Número de Classes:", min_value=2, step=1, key="num_classes_eval_eval")
                 model_name_eval = st.selectbox("Modelo Pré-treinado:", options=['ResNet18', 'ResNet50', 'DenseNet121'], key="model_name_eval")
                 model_eval = get_model(model_name_eval, num_classes_eval, dropout_p=0.5, fine_tune=False)
                 if model_eval is None:
@@ -1320,7 +1539,7 @@ def main():
                     return
 
                 # Carregar as classes
-                classes_file_eval = st.file_uploader("Faça upload do arquivo com as classes (classes.txt)", type=["txt"], key="classes_file_uploader_eval")
+                classes_file_eval = st.file_uploader("Faça upload do arquivo com as classes (classes.txt)", type=["txt"], key="classes_file_uploader_eval_load")
                 if classes_file_eval is not None:
                     try:
                         classes_eval = classes_file_eval.read().decode("utf-8").splitlines()
@@ -1337,7 +1556,7 @@ def main():
             classes_eval = st.session_state['classes']
             model_name_eval = st.session_state.get('trained_model_name', 'ResNet18')  # Usa o nome do modelo armazenado
 
-        eval_image_file = st.file_uploader("Faça upload da imagem para avaliação", type=["png", "jpg", "jpeg", "bmp", "gif"], key="eval_image_file")
+        eval_image_file = st.file_uploader("Faça upload da imagem para avaliação", type=["png", "jpg", "jpeg", "bmp", "gif"], key="eval_image_file_eval")
         if eval_image_file is not None:
             eval_image_file.seek(0)
             try:
@@ -1354,8 +1573,7 @@ def main():
                 st.write(f"**Confiança:** {confidence:.4f}")
 
                 # Visualizar ativações
-                model_name_for_visualization = st.session_state.get('trained_model_name', 'ResNet18')
-                visualize_activations(st.session_state['model'], eval_image, st.session_state['classes'], model_name_for_visualization)
+                visualize_activations(st.session_state['model'], eval_image, st.session_state['classes'], model_name_eval, run_id=1)
             else:
                 st.error("Modelo ou classes não carregados. Por favor, carregue um modelo ou treine um novo modelo.")
 

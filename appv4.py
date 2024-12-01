@@ -133,7 +133,8 @@ def visualize_data(dataset, classes):
             label="Download da Visualização do Conjunto de Dados",
             data=file,
             file_name="visualize_data.png",
-            mime="image/png"
+            mime="image/png",
+            key="download_visualize_data"
         )
     if btn:
         st.success("Visualização do conjunto de dados baixada com sucesso!")
@@ -179,7 +180,8 @@ def plot_class_distribution(dataset, classes):
             label="Download da Distribuição das Classes",
             data=file,
             file_name="class_distribution.png",
-            mime="image/png"
+            mime="image/png",
+            key="download_class_distribution"
         )
     if btn:
         st.success("Distribuição das classes baixada com sucesso!")
@@ -346,7 +348,8 @@ def visualize_embeddings(df, class_names):
             label="Download da Visualização dos Embeddings",
             data=file,
             file_name="embeddings_pca.png",
-            mime="image/png"
+            mime="image/png",
+            key="download_embeddings_pca"
         )
     if btn:
         st.success("Visualização dos embeddings baixada com sucesso!")
@@ -388,7 +391,8 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
             label="Download das Configurações",
             data=file,
             file_name=config_filename,
-            mime="application/json"
+            mime="application/json",
+            key=f"download_config_{model_name}_run{run_id}"
         )
     if btn:
         st.success("Configurações baixadas com sucesso!")
@@ -466,7 +470,8 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
             label="Download do DataFrame de Treinamento",
             data=file,
             file_name=train_df_filename,
-            mime="text/csv"
+            mime="text/csv",
+            key=f"download_train_df_{model_name}_run{run_id}"
         )
     if btn:
         st.success("DataFrame de treinamento baixado com sucesso!")
@@ -484,7 +489,8 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
             label="Download do DataFrame de Validação",
             data=file,
             file_name=valid_df_filename,
-            mime="text/csv"
+            mime="text/csv",
+            key=f"download_valid_df_{model_name}_run{run_id}"
         )
     if btn:
         st.success("DataFrame de validação baixado com sucesso!")
@@ -502,7 +508,8 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
             label="Download do DataFrame de Teste",
             data=file,
             file_name=test_df_filename,
-            mime="text/csv"
+            mime="text/csv",
+            key=f"download_test_df_{model_name}_run{run_id}"
         )
     if btn:
         st.success("DataFrame de teste baixado com sucesso!")
@@ -664,7 +671,8 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
                     label="Download do Gráfico de Perda e Acurácia (Atualizado)",
                     data=file,
                     file_name=f'loss_accuracy_{model_name}_run{run_id}.png',
-                    mime="image/png"
+                    mime="image/png",
+                    key=f"download_loss_accuracy_{model_name}_run{run_id}"
                 )
             if btn:
                 st.success("Gráfico de perda e acurácia baixado com sucesso!")
@@ -755,7 +763,8 @@ def plot_metrics(train_losses, valid_losses, train_accuracies, valid_accuracies,
             label="Download dos Gráficos de Perda e Acurácia Finais",
             data=file,
             file_name=plot_filename,
-            mime="image/png"
+            mime="image/png",
+            key=f"download_loss_accuracy_final_{model_name}_run{run_id}"
         )
     if btn:
         st.success("Gráficos finais de perda e acurácia baixados com sucesso!")
@@ -800,7 +809,8 @@ def compute_metrics(model, dataloader, classes, model_name, run_id):
             label="Download do Relatório de Classificação",
             data=file,
             file_name=report_filename,
-            mime="text/csv"
+            mime="text/csv",
+            key=f"download_classification_report_{model_name}_run{run_id}"
         )
     if btn:
         st.success("Relatório de classificação baixado com sucesso!")
@@ -823,7 +833,8 @@ def compute_metrics(model, dataloader, classes, model_name, run_id):
             label="Download da Matriz de Confusão",
             data=file,
             file_name=cm_filename,
-            mime="image/png"
+            mime="image/png",
+            key=f"download_confusion_matrix_{model_name}_run{run_id}"
         )
     if btn:
         st.success("Matriz de Confusão baixada com sucesso!")
@@ -851,7 +862,8 @@ def compute_metrics(model, dataloader, classes, model_name, run_id):
                 label="Download da Curva ROC",
                 data=file,
                 file_name=roc_filename,
-                mime="image/png"
+                mime="image/png",
+                key=f"download_roc_curve_{model_name}_run{run_id}"
             )
         if btn:
             st.success("Curva ROC baixada com sucesso!")
@@ -873,7 +885,8 @@ def compute_metrics(model, dataloader, classes, model_name, run_id):
                 label="Download do AUC-ROC",
                 data=file,
                 file_name=auc_filename,
-                mime="text/plain"
+                mime="text/plain",
+                key=f"download_auc_roc_{model_name}_run{run_id}"
             )
         if btn:
             st.success("AUC-ROC baixado com sucesso!")
@@ -908,7 +921,8 @@ def compute_metrics(model, dataloader, classes, model_name, run_id):
             label="Download das Métricas",
             data=file,
             file_name=metrics_filename,
-            mime="text/csv"
+            mime="text/csv",
+            key=f"download_metrics_{model_name}_run{run_id}"
         )
     if btn:
         st.success("Métricas baixadas com sucesso!")
@@ -959,7 +973,8 @@ def error_analysis(model, dataloader, classes, model_name, run_id):
                 label="Download das Imagens Mal Classificadas",
                 data=file,
                 file_name=f'misclassified_{model_name}_run{run_id}.png',
-                mime="image/png"
+                mime="image/png",
+                key=f"download_misclassified_{model_name}_run{run_id}"
             )
         if btn:
             st.success("Imagens mal classificadas baixadas com sucesso!")
@@ -1032,7 +1047,8 @@ def perform_clustering(model, dataloader, classes, model_name, run_id):
             label="Download dos Resultados de Clusterização",
             data=file,
             file_name=clustering_filename,
-            mime="image/png"
+            mime="image/png",
+            key=f"download_clustering_{model_name}_run{run_id}"
         )
     if btn:
         st.success("Resultados de clusterização baixados com sucesso!")
@@ -1066,7 +1082,8 @@ def perform_clustering(model, dataloader, classes, model_name, run_id):
             label="Download das Métricas de Clusterização",
             data=file,
             file_name=clustering_metrics_filename,
-            mime="text/csv"
+            mime="text/csv",
+            key=f"download_clustering_metrics_{model_name}_run{run_id}"
         )
     if btn:
         st.success("Métricas de clusterização baixadas com sucesso!")
@@ -1146,7 +1163,8 @@ def visualize_activations(model, image, class_names, model_name, run_id):
             label="Download da Visualização de Grad-CAM",
             data=file,
             file_name=activation_filename,
-            mime="image/png"
+            mime="image/png",
+            key=f"download_grad_cam_{model_name}_run{run_id}"
         )
     if btn:
         st.success("Visualização de Grad-CAM baixada com sucesso!")
@@ -1355,7 +1373,7 @@ def main():
                                 data=file,
                                 file_name=model_filename,
                                 mime="application/octet-stream",
-                                key=f"download_model_button_{model_name}_{run}"
+                                key=f"download_model_{model_name}_run{run}"
                             )
                         if btn:
                             st.success(f"Modelo {model_name}_run{run} baixado com sucesso!")
@@ -1366,7 +1384,7 @@ def main():
                                 data=file,
                                 file_name=classes_filename,
                                 mime="text/plain",
-                                key=f"download_classes_button_{model_name}_{run}"
+                                key=f"download_classes_{model_name}_run{run}"
                             )
                         if btn:
                             st.success(f"Classes {model_name}_run{run} baixadas com sucesso!")
@@ -1384,7 +1402,7 @@ def main():
                                 data=file,
                                 file_name=metrics_filename,
                                 mime="text/csv",
-                                key=f"download_metrics_button_{model_name}_{run}"
+                                key=f"download_metrics_{model_name}_run{run}"
                             )
                         if btn:
                             st.success(f"Métricas {model_name}_run{run} baixadas com sucesso!")

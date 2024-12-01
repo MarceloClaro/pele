@@ -1,4 +1,4 @@
-import os
+import os 
 import zipfile
 import shutil
 import tempfile
@@ -245,6 +245,7 @@ def apply_transforms_and_get_embeddings(dataset, model, transform, batch_size=16
     labels_list = []
     file_paths_list = []
     augmented_images_list = []
+    augmented_images_size_kb = []
 
     # Remover a última camada do modelo para extrair os embeddings
     model_embedding = nn.Sequential(*list(model.children())[:-1])
@@ -262,7 +263,11 @@ def apply_transforms_and_get_embeddings(dataset, model, transform, batch_size=16
             embeddings = embeddings.view(embeddings.size(0), -1).cpu().numpy()
             embeddings_list.extend(embeddings)
             labels_list.extend(labels.numpy())
-            augmented_images_list.extend([img.permute(1, 2, 0).numpy() for img in images_augmented.cpu()])
+            augmented_images = [img.permute(1, 2, 0).numpy() for img in images_augmented.cpu()]
+            augmented_images_list.extend(augmented_images)
+            # Calcular o tamanho em KB de cada imagem
+            sizes_kb = [img.nbytes / 1024 for img in images_augmented.cpu()]
+            augmented_images_size_kb.extend(sizes_kb)
             # Atualizar o file_paths_list para corresponder às imagens atuais
             if hasattr(dataset, 'dataset') and hasattr(dataset.dataset, 'samples'):
                 batch_indices = indices[index_pointer:index_pointer + len(images)]
@@ -277,7 +282,8 @@ def apply_transforms_and_get_embeddings(dataset, model, transform, batch_size=16
         'file_path': file_paths_list,
         'label': labels_list,
         'embedding': embeddings_list,
-        'augmented_image': augmented_images_list
+        'augmented_image': augmented_images_list,
+        'augmented_image_size_kb': augmented_images_size_kb
     })
 
     return df
@@ -475,6 +481,9 @@ def train_model(train_loader, valid_loader, test_loader, num_classes, model_name
                     st.error(f"Erro durante o treinamento: {e}")
                     return None
 
+                # Adicione estas linhas para depuração
+                st.write(f"Outputs shape: {outputs.shape}, Labels shape: {labels.shape}")
+
                 _, preds = torch.max(outputs, 1)
                 loss = criterion(outputs, labels)
                 loss.backward()
@@ -594,6 +603,22 @@ def train_model(train_loader, valid_loader, test_loader, num_classes, model_name
     # Armazenar o modelo e as classes no st.session_state
     st.session_state['model'] = model
     st.session_state['trained_model_name'] = model_name  # Armazena o nome do modelo treinado
+
+    # Armazenar as métricas de treinamento
+    training_metrics = {
+        'Model': model_name,
+        'Run_ID': run_id,
+        'Epochs': epoch + 1,
+        'Best_Validation_Loss': best_valid_loss,
+        'Accuracy': metrics['Accuracy'],
+        'Precision': metrics['Precision'],
+        'Recall': metrics['Recall'],
+        'F1_Score': metrics['F1_Score'],
+        'ROC_AUC': metrics['ROC_AUC']
+    }
+    if 'all_model_metrics' not in st.session_state:
+        st.session_state['all_model_metrics'] = []
+    st.session_state['all_model_metrics'].append(training_metrics)
 
     return model, st.session_state['classes'], metrics
 
@@ -1123,7 +1148,8 @@ def main():
 
     # Barra Lateral de Configurações
     st.sidebar.title("Configurações do Treinamento")
-    num_classes = st.sidebar.number_input("Número de Classes:", min_value=2, step=1, key="num_classes")
+    # Remover a entrada manual de número de classes
+    # num_classes = st.sidebar.number_input("Número de Classes:", min_value=2, step=1, key="num_classes")
     model_name = st.sidebar.selectbox("Modelo Pré-treinado:", options=['ResNet18', 'ResNet50', 'DenseNet121'], key="model_name_single_train")
     fine_tune = st.sidebar.checkbox("Fine-Tuning Completo", value=False, key="fine_tune")
     epochs = st.sidebar.slider("Número de Épocas:", min_value=1, max_value=50, value=10, step=1, key="epochs")
@@ -1135,39 +1161,74 @@ def main():
     patience = st.sidebar.number_input("Paciência para Early Stopping:", min_value=1, max_value=10, value=3, step=1, key="patience")
     use_weighted_loss = st.sidebar.checkbox("Usar Perda Ponderada para Classes Desbalanceadas", value=False, key="use_weighted_loss")
 
-    # Botão para limpar a memória
+    # Adicionar Histórico dos Resultados no Sidebar
+    st.sidebar.markdown("### Histórico de Treinamentos")
+    if st.session_state['all_model_metrics']:
+        history_df = pd.DataFrame(st.session_state['all_model_metrics'])
+        st.sidebar.dataframe(history_df)
+        # Disponibilizar para download do histórico
+        history_filename = "historico_treinamentos.csv"
+        history_df.to_csv(history_filename, index=False)
+        unique_id_history = uuid.uuid4()
+        with open(history_filename, "rb") as file:
+            btn_history = st.sidebar.download_button(
+                label="Download do Histórico de Treinamentos",
+                data=file,
+                file_name=history_filename,
+                mime="text/csv",
+                key=f"download_history_{unique_id_history}"
+            )
+        if btn_history:
+            st.sidebar.success("Histórico de treinamentos baixado com sucesso!")
+    else:
+        st.sidebar.write("Nenhum treinamento realizado ainda.")
+
+    # Botão para limpar a memória e o histórico
+    st.sidebar.button("Limpar Memória")
     if st.sidebar.button("Limpar Memória"):
         gc.collect()
         torch.cuda.empty_cache()
         st.sidebar.success("Memória limpa com sucesso!")
+        # Opcional: limpar o histórico também
+        # st.session_state['all_model_metrics'] = []
 
-    if os.path.exists("eu.ico"):
-        try:
-            st.sidebar.image("eu.ico", width=80)
-        except UnidentifiedImageError:
-            st.sidebar.text("Imagem 'eu.ico' não pôde ser carregada ou está corrompida.")
+    # Adicionar Monitoramento de Recursos abaixo do botão "Limpar Memória"
+    st.sidebar.markdown("### Monitoramento de Recursos")
+
+    # Uso de CPU
+    cpu_usage = psutil.cpu_percent(interval=1)
+    st.sidebar.write(f"**Uso de CPU:** {cpu_usage}%")
+
+    # Uso de Memória RAM
+    mem = psutil.virtual_memory()
+    mem_usage = mem.percent
+    st.sidebar.write(f"**Uso de Memória RAM:** {mem_usage}%")
+
+    # Verificar CUDA e GPU
+    cuda_available = torch.cuda.is_available()
+    if cuda_available:
+        gpu_count = torch.cuda.device_count()
+        gpu_name = torch.cuda.get_device_name(0)
+        st.sidebar.write(f"**CUDA Disponível:** Sim ({gpu_count} GPU(s) detectada(s): {gpu_name})")
     else:
-        st.sidebar.text("Imagem 'eu.ico' não encontrada.")
+        st.sidebar.write("**CUDA Disponível:** Não")
 
-    st.sidebar.write("""
-    **Produzido pelo:**
+    # Tempo de Processador
+    cpu_times = psutil.cpu_times()
+    cpu_time = cpu_times.user + cpu_times.system
+    st.sidebar.write(f"**Tempo de Processador:** {cpu_time:.2f} segundos")
 
-    Projeto Geomaker + IA 
-
-    [DOI:10.5281/zenodo.13910277](https://doi.org/10.5281/zenodo.13910277)
-
-    - **Professor:** Marcelo Claro.
-
-    - **Contatos:** marceloclaro@gmail.com
-
-    - **Whatsapp:** (88)981587145
-
-    - **Instagram:** [marceloclaro.geomaker](https://www.instagram.com/marceloclaro.geomaker/)
-    """)
-
-    # Verificar se a soma dos splits é válida
-    if train_split + valid_split > 0.95:
-        st.sidebar.error("A soma dos splits de treinamento e validação deve ser menor ou igual a 0.95.")
+    # Quantidade de Imagens e KB da Data Augmentation Gerada para Treinamento
+    # Para isso, precisamos calcular a partir do DataFrame de embeddings
+    if 'embeddings_dataframe_single' in st.session_state:
+        embeddings_df = st.session_state['embeddings_dataframe_single']
+        num_augmented_images = len(embeddings_df)
+        total_augmented_kb = embeddings_df['augmented_image_size_kb'].sum()
+        st.sidebar.write(f"**Número de Imagens Augmentadas:** {num_augmented_images}")
+        st.sidebar.write(f"**Total de Data Augmentation Gerada:** {total_augmented_kb:.2f} KB")
+    else:
+        st.sidebar.write("**Número de Imagens Augmentadas:** N/A")
+        st.sidebar.write("**Total de Data Augmentation Gerada:** N/A")
 
     # Opções de carregamento do modelo
     st.header("Treinamento e Carregamento do Modelo")
@@ -1176,42 +1237,40 @@ def main():
     if model_option == "Carregar um modelo existente":
         # Upload do modelo pré-treinado
         model_file = st.file_uploader("Faça upload do arquivo do modelo (.pt ou .pth)", type=["pt", "pth"], key="model_file_uploader_main")
-        if model_file is not None and num_classes > 0:
+        if model_file is not None:
+            # Após carregar o dataset, definir num_classes automaticamente
             # Seleção do modelo
-            model_name = st.selectbox("Modelo Pré-treinado:", options=['ResNet18', 'ResNet50', 'DenseNet121'], key="model_name_single_load")
+            model_name_load = st.selectbox("Modelo Pré-treinado:", options=['ResNet18', 'ResNet50', 'DenseNet121'], key="model_name_single_load")
             # Carregar o modelo
-            model = get_model(model_name, num_classes, dropout_p=0.5, fine_tune=False)
-            if model is None:
-                st.error("Erro ao carregar o modelo.")
-                return
-
-            # Carregar os pesos do modelo
-            try:
-                state_dict = torch.load(model_file, map_location=device)
-                model.load_state_dict(state_dict)
-                st.session_state['model'] = model
-                st.session_state['trained_model_name'] = model_name  # Armazena o nome do modelo treinado
-                st.success("Modelo carregado com sucesso!")
-            except Exception as e:
-                st.error(f"Erro ao carregar o modelo: {e}")
-                return
-
-            # Carregar as classes
+            # Temporariamente, carregar as classes primeiro
             classes_file = st.file_uploader("Faça upload do arquivo com as classes (classes.txt)", type=["txt"], key="classes_file_uploader_main_load")
             if classes_file is not None:
                 try:
                     classes = classes_file.read().decode("utf-8").splitlines()
                     st.session_state['classes'] = classes
                     st.write(f"Classes carregadas: {classes}")
+                    num_classes_load = len(classes)
+                    model_load = get_model(model_name_load, num_classes_load, dropout_p=0.5, fine_tune=False)
+                    if model_load is None:
+                        st.error("Erro ao carregar o modelo.")
+                        return
+
+                    # Carregar os pesos do modelo
+                    try:
+                        state_dict = torch.load(model_file, map_location=device)
+                        model_load.load_state_dict(state_dict)
+                        st.session_state['model'] = model_load
+                        st.session_state['trained_model_name'] = model_name_load  # Armazena o nome do modelo treinado
+                        st.success("Modelo carregado com sucesso!")
+                    except Exception as e:
+                        st.error(f"Erro ao carregar o modelo: {e}")
+                        return
                 except Exception as e:
                     st.error(f"Erro ao carregar as classes: {e}")
-            else:
-                st.error("Por favor, forneça o arquivo com as classes.")
-
     elif model_option == "Treinar um novo modelo":
         # Upload do arquivo ZIP
         zip_file_single = st.file_uploader("Upload do arquivo ZIP com as imagens", type=["zip"], key="zip_file_uploader_single")
-        if zip_file_single is not None and num_classes > 0 and train_split + valid_split <= 0.95:
+        if zip_file_single is not None and train_split + valid_split <= 0.95:
             try:
                 temp_dir = tempfile.mkdtemp()
                 zip_path = os.path.join(temp_dir, "uploaded.zip")
@@ -1226,11 +1285,12 @@ def main():
                 full_dataset_single = datasets.ImageFolder(root=data_dir)
 
                 # Verificar se há classes suficientes
-                if len(full_dataset_single.classes) < num_classes:
-                    st.error(f"O número de classes encontradas ({len(full_dataset_single.classes)}) é menor do que o número especificado ({num_classes}).")
+                if len(full_dataset_single.classes) < 2:
+                    st.error(f"O número de classes encontradas ({len(full_dataset_single.classes)}) é menor do que o mínimo necessário (2).")
                     return
 
                 st.session_state['classes'] = full_dataset_single.classes  # Armazenar as classes
+                num_classes = len(full_dataset_single.classes)  # Definir num_classes automaticamente
 
                 # Exibir dados
                 visualize_data(full_dataset_single, full_dataset_single.classes)
@@ -1267,9 +1327,9 @@ def main():
                 g = torch.Generator()
                 g.manual_seed(42)
 
-                train_loader_single = DataLoader(train_dataset_single, batch_size=batch_size, shuffle=True, worker_init_fn=seed_worker, generator=g)
-                valid_loader_single = DataLoader(valid_dataset_single, batch_size=batch_size, shuffle=False, worker_init_fn=seed_worker, generator=g)
-                test_loader_single = DataLoader(test_dataset_single, batch_size=batch_size, shuffle=False, worker_init_fn=seed_worker, generator=g)
+                train_loader_single = DataLoader(train_dataset_single, batch_size=batch_size, shuffle=True, drop_last=True, worker_init_fn=seed_worker, generator=g)
+                valid_loader_single = DataLoader(valid_dataset_single, batch_size=batch_size, shuffle=False, drop_last=True, worker_init_fn=seed_worker, generator=g)
+                test_loader_single = DataLoader(test_dataset_single, batch_size=batch_size, shuffle=False, drop_last=True, worker_init_fn=seed_worker, generator=g)
 
                 # Aplicar Data Augmentation e obter embeddings usando um dos modelos (por exemplo, ResNet18)
                 base_model_single = get_model('ResNet18', num_classes)
@@ -1279,6 +1339,9 @@ def main():
 
                 st.write("**Extraindo embeddings e aplicando Data Augmentation no conjunto de treinamento...**")
                 df_embeddings_single = apply_transforms_and_get_embeddings(train_dataset_original_single, base_model_single, train_transforms, batch_size=batch_size)
+
+                # Salvar o DataFrame de embeddings no session_state para uso no sidebar
+                st.session_state['embeddings_dataframe_single'] = df_embeddings_single
 
                 # Visualizar as primeiras 20 imagens após Data Augmentation
                 display_all_augmented_images(df_embeddings_single, full_dataset_single.classes, max_images=20)
@@ -1388,33 +1451,30 @@ def main():
             # Opção para carregar um modelo existente
             model_file_eval = st.file_uploader("Faça upload do arquivo do modelo (.pt ou .pth)", type=["pt", "pth"], key="model_file_uploader_eval")
             if model_file_eval is not None:
-                num_classes_eval = st.number_input("Número de Classes:", min_value=2, step=1, key="num_classes_eval_eval")
-                model_name_eval = st.selectbox("Modelo Pré-treinado:", options=['ResNet18', 'ResNet50', 'DenseNet121'], key="model_name_eval")
-                model_eval = get_model(model_name_eval, num_classes_eval, dropout_p=0.5, fine_tune=False)
-                if model_eval is None:
-                    st.error("Erro ao carregar o modelo.")
-                    return
-                try:
-                    state_dict = torch.load(model_file_eval, map_location=device)
-                    model_eval.load_state_dict(state_dict)
-                    st.session_state['model'] = model_eval
-                    st.session_state['trained_model_name'] = model_name_eval  # Armazena o nome do modelo treinado
-                    st.success("Modelo carregado com sucesso!")
-                except Exception as e:
-                    st.error(f"Erro ao carregar o modelo: {e}")
-                    return
-
-                # Carregar as classes
+                # Temporariamente, carregar as classes primeiro
                 classes_file_eval = st.file_uploader("Faça upload do arquivo com as classes (classes.txt)", type=["txt"], key="classes_file_uploader_eval_load")
                 if classes_file_eval is not None:
                     try:
                         classes_eval = classes_file_eval.read().decode("utf-8").splitlines()
                         st.session_state['classes'] = classes_eval
                         st.write(f"Classes carregadas: {classes_eval}")
+                        num_classes_eval = len(classes_eval)
+                        model_name_eval = st.selectbox("Modelo Pré-treinado:", options=['ResNet18', 'ResNet50', 'DenseNet121'], key="model_name_eval")
+                        model_eval = get_model(model_name_eval, num_classes_eval, dropout_p=0.5, fine_tune=False)
+                        if model_eval is None:
+                            st.error("Erro ao carregar o modelo.")
+                            return
+                        try:
+                            state_dict = torch.load(model_file_eval, map_location=device)
+                            model_eval.load_state_dict(state_dict)
+                            st.session_state['model'] = model_eval
+                            st.session_state['trained_model_name'] = model_name_eval  # Armazena o nome do modelo treinado
+                            st.success("Modelo carregado com sucesso!")
+                        except Exception as e:
+                            st.error(f"Erro ao carregar o modelo: {e}")
+                            return
                     except Exception as e:
                         st.error(f"Erro ao carregar as classes: {e}")
-                else:
-                    st.error("Por favor, forneça o arquivo com as classes.")
         else:
             model_eval = st.session_state['model']
             classes_eval = st.session_state['classes']
@@ -1445,13 +1505,7 @@ def main():
     st.write("### Documentação dos Procedimentos")
     st.write("Todas as etapas foram cuidadosamente registradas. Utilize esta documentação para reproduzir o experimento e analisar os resultados.")
 
-    # Monitoramento de Recursos
-    st.header("Monitoramento de Recursos")
-    cpu_usage = psutil.cpu_percent(interval=1)
-    mem = psutil.virtual_memory()
-    mem_usage = mem.percent
-    st.write(f"**Uso de CPU:** {cpu_usage}%")
-    st.write(f"**Uso de Memória RAM:** {mem_usage}%")
+    # Monitoramento de Recursos (já adicionado no sidebar)
 
     # Encerrar a aplicação
     st.write("Obrigado por utilizar o aplicativo!")

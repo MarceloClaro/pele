@@ -953,6 +953,10 @@ def main():
     st.write("Este aplicativo permite treinar múltiplos modelos de classificação de imagens, aplicar algoritmos de clustering para análise comparativa e realizar avaliações estatísticas detalhadas.")
     st.write("As etapas são cuidadosamente documentadas para auxiliar na reprodução e análise científica.")
 
+    # Inicializar 'all_model_metrics' no session_state se ainda não existir
+    if 'all_model_metrics' not in st.session_state:
+        st.session_state['all_model_metrics'] = []
+
     # Barra Lateral de Configurações
     st.sidebar.title("Configurações do Treinamento")
     num_classes = st.sidebar.number_input("Número de Classes:", min_value=2, step=1, key="num_classes")
@@ -1021,10 +1025,6 @@ def main():
         if len(model_list) == 0:
             st.error("Por favor, selecione pelo menos um modelo para treinar.")
             return
-
-        # Inicializar 'all_model_metrics' no session_state se ainda não existir
-        if 'all_model_metrics' not in st.session_state:
-            st.session_state['all_model_metrics'] = []
 
         # Inicializar lista para armazenar modelos treinados
         trained_models = []
@@ -1108,58 +1108,58 @@ def main():
                             key=f"download_classes_button_{model_name}_{run_id}"
                         )
 
+                # Exibir as métricas coletadas após o treinamento
+                if len(st.session_state['all_model_metrics']) > 0:
+                    st.header("Métricas de Desempenho de Todos os Modelos")
+                    metrics_df = pd.DataFrame(st.session_state['all_model_metrics'])
+                    st.dataframe(metrics_df)
+
+                    # Calcular Intervalos de Confiança para Cada Métrica
+                    st.subheader("Intervalos de Confiança para as Métricas de Desempenho")
+                    confidence_level = 0.95
+                    for metric in ['Accuracy', 'Precision', 'Recall', 'F1_Score', 'ROC_AUC']:
+                        data = metrics_df[metric].dropna()
+                        if len(data) > 1:
+                            conf_interval = stats.t.interval(confidence_level, len(data)-1, loc=np.mean(data), scale=stats.sem(data))
+                            st.write(f"**{metric}:** Média = {np.mean(data):.4f}, Intervalo de Confiança de {int(confidence_level*100)}% = [{conf_interval[0]:.4f}, {conf_interval[1]:.4f}]")
+                        elif len(data) == 1:
+                            st.write(f"**{metric}:** Apenas uma observação disponível.")
+                        else:
+                            st.write(f"**{metric}:** Nenhum dado disponível.")
+
+                    # Realizar ANOVA para Cada Métrica
+                    st.subheader("Análise de Variância (ANOVA) para as Métricas de Desempenho")
+                    for metric in ['Accuracy', 'Precision', 'Recall', 'F1_Score', 'ROC_AUC']:
+                        data = metrics_df[['Model', metric]].dropna()
+                        st.write(f"**Métrica: {metric}**")
+                        # Verificar se há dados suficientes
+                        group_sizes = data.groupby('Model').size()
+                        st.write("**Tamanhos dos Grupos (Modelos):**")
+                        st.write(group_sizes)
+                        if len(group_sizes) >= 2 and (group_sizes >= 2).all():
+                            # Preparar os dados para ANOVA
+                            groups = data['Model'].values
+                            metric_data = data[metric].values
+                            f_val, p_val = perform_anova(metric_data, groups)
+                            visualize_anova_results(f_val, p_val)
+                        else:
+                            st.write(f"**{metric}:** ANOVA não pode ser realizada. É necessário pelo menos dois modelos com pelo menos duas observações cada.")
+
+                    # Realizar Teste Tukey HSD para Cada Métrica
+                    st.subheader("Teste Post-Hoc Tukey HSD para as Métricas de Desempenho")
+                    for metric in ['Accuracy', 'Precision', 'Recall', 'F1_Score', 'ROC_AUC']:
+                        data = metrics_df[['Model', metric]].dropna()
+                        group_sizes = data.groupby('Model').size()
+                        if len(group_sizes) >= 2 and (group_sizes >= 2).all():
+                            # Supondo que cada modelo seja um grupo distinto
+                            tukey = pairwise_tukeyhsd(endog=data[metric], groups=data['Model'], alpha=0.05)
+                            st.write(f"**{metric}:**")
+                            st.text(tukey.summary())
+                        else:
+                            st.write(f"**{metric}:** Teste Tukey HSD não pode ser realizado. É necessário pelo menos dois modelos com pelo menos duas observações cada.")
+
             except Exception as e:
                 st.error(f"Erro durante o treinamento múltiplo: {e}")
-
-    # Exibir as métricas coletadas
-    if 'all_model_metrics' in st.session_state and len(st.session_state['all_model_metrics']) > 0:
-        st.header("Métricas de Desempenho de Todos os Modelos")
-        metrics_df = pd.DataFrame(st.session_state['all_model_metrics'])
-        st.dataframe(metrics_df)
-
-        # Calcular Intervalos de Confiança para Cada Métrica
-        st.subheader("Intervalos de Confiança para as Métricas de Desempenho")
-        confidence_level = 0.95
-        for metric in ['Accuracy', 'Precision', 'Recall', 'F1_Score', 'ROC_AUC']:
-            data = metrics_df[metric].dropna()
-            if len(data) > 1:
-                conf_interval = stats.t.interval(confidence_level, len(data)-1, loc=np.mean(data), scale=stats.sem(data))
-                st.write(f"**{metric}:** Média = {np.mean(data):.4f}, Intervalo de Confiança de {int(confidence_level*100)}% = [{conf_interval[0]:.4f}, {conf_interval[1]:.4f}]")
-            elif len(data) == 1:
-                st.write(f"**{metric}:** Apenas uma observação disponível.")
-            else:
-                st.write(f"**{metric}:** Nenhum dado disponível.")
-
-        # Realizar ANOVA para Cada Métrica
-        st.subheader("Análise de Variância (ANOVA) para as Métricas de Desempenho")
-        for metric in ['Accuracy', 'Precision', 'Recall', 'F1_Score', 'ROC_AUC']:
-            data = metrics_df[['Model', metric]].dropna()
-            st.write(f"**Métrica: {metric}**")
-            # Verificar se há dados suficientes
-            group_sizes = data.groupby('Model').size()
-            st.write("**Tamanhos dos Grupos (Modelos):**")
-            st.write(group_sizes)
-            if len(group_sizes) >= 2 and (group_sizes >= 2).all():
-                # Preparar os dados para ANOVA
-                groups = data['Model'].values
-                metric_data = data[metric].values
-                f_val, p_val = perform_anova(metric_data, groups)
-                visualize_anova_results(f_val, p_val)
-            else:
-                st.write(f"**{metric}:** ANOVA não pode ser realizada. É necessário pelo menos dois modelos com pelo menos duas observações cada.")
-
-        # Realizar Teste Tukey HSD para Cada Métrica
-        st.subheader("Teste Post-Hoc Tukey HSD para as Métricas de Desempenho")
-        for metric in ['Accuracy', 'Precision', 'Recall', 'F1_Score', 'ROC_AUC']:
-            data = metrics_df[['Model', metric]].dropna()
-            group_sizes = data.groupby('Model').size()
-            if len(group_sizes) >= 2 and (group_sizes >= 2).all():
-                # Supondo que cada modelo seja um grupo distinto
-                tukey = pairwise_tukeyhsd(endog=data[metric], groups=data['Model'], alpha=0.05)
-                st.write(f"**{metric}:**")
-                st.text(tukey.summary())
-            else:
-                st.write(f"**{metric}:** Teste Tukey HSD não pode ser realizado. É necessário pelo menos dois modelos com pelo menos duas observações cada.")
 
     # Opções de carregamento do modelo
     st.header("Opções de Carregamento do Modelo")

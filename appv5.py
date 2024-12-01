@@ -35,6 +35,7 @@ import io
 import warnings
 from datetime import datetime
 from scipy import stats
+import uuid  # Importação do módulo uuid para gerar identificadores únicos
 
 # Supressão dos avisos relacionados ao torch.classes
 warnings.filterwarnings("ignore", category=UserWarning, message=".*torch.classes.*")
@@ -126,7 +127,19 @@ def visualize_data(dataset, classes):
     plt.tight_layout()
     plt.savefig("visualize_data.png")
     st.image("visualize_data.png", caption='Exemplos do Conjunto de Dados')
-    plt.close(fig)  # Fechar a figura para liberar memória
+
+    # Disponibilizar para download
+    unique_id = uuid.uuid4()
+    with open("visualize_data.png", "rb") as file:
+        btn = st.download_button(
+            label="Download da Visualização do Conjunto de Dados",
+            data=file,
+            file_name="visualize_data.png",
+            mime="image/png",
+            key=f"download_visualize_data_{unique_id}"
+        )
+    if btn:
+        st.success("Visualização do conjunto de dados baixada com sucesso!")
 
 
 def plot_class_distribution(dataset, classes):
@@ -162,7 +175,19 @@ def plot_class_distribution(dataset, classes):
     plt.tight_layout()
     plt.savefig("class_distribution.png")
     st.image("class_distribution.png", caption='Distribuição das Classes')
-    plt.close(fig)  # Fechar a figura para liberar memória
+
+    # Disponibilizar para download
+    unique_id = uuid.uuid4()
+    with open("class_distribution.png", "rb") as file:
+        btn = st.download_button(
+            label="Download da Distribuição das Classes",
+            data=file,
+            file_name="class_distribution.png",
+            mime="image/png",
+            key=f"download_class_distribution_{unique_id}"
+        )
+    if btn:
+        st.success("Distribuição das classes baixada com sucesso!")
 
 
 def get_model(model_name, num_classes, dropout_p=0.5, fine_tune=False):
@@ -319,10 +344,22 @@ def visualize_embeddings(df, class_names):
     plt.tight_layout()
     plt.savefig("embeddings_pca.png")
     st.image("embeddings_pca.png", caption='Visualização dos Embeddings com PCA')
-    plt.close()  # Fechar a figura para liberar memória
+
+    # Disponibilizar para download
+    unique_id = uuid.uuid4()
+    with open("embeddings_pca.png", "rb") as file:
+        btn = st.download_button(
+            label="Download da Visualização dos Embeddings",
+            data=file,
+            file_name="embeddings_pca.png",
+            mime="image/png",
+            key=f"download_embeddings_pca_{unique_id}"
+        )
+    if btn:
+        st.success("Visualização dos embeddings baixada com sucesso!")
 
 
-def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_rate, batch_size, train_split, valid_split, use_weighted_loss, l2_lambda, patience, model_id=None, run_id=None):
+def train_model(train_loader, valid_loader, test_loader, num_classes, model_name, fine_tune, epochs, learning_rate, batch_size, use_weighted_loss, l2_lambda, patience, model_id=None, run_id=None):
     """
     Função principal para treinamento do modelo de classificação.
     """
@@ -337,8 +374,6 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
         'Épocas': epochs,
         'Taxa de Aprendizagem': learning_rate,
         'Tamanho do Lote': batch_size,
-        'Train Split': train_split,
-        'Valid Split': valid_split,
         'L2 Regularization': l2_lambda,
         'Paciência Early Stopping': patience,
         'Use Weighted Loss': use_weighted_loss
@@ -352,101 +387,37 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
         json.dump(config, f, indent=4)
     st.write(f"Configurações salvas como `{config_filename}`")
 
+    # Disponibilizar para download
+    unique_id = uuid.uuid4()
+    with open(config_filename, "rb") as file:
+        btn = st.download_button(
+            label="Download das Configurações",
+            data=file,
+            file_name=config_filename,
+            mime="application/json",
+            key=f"download_config_{model_name}_run{run_id}_{unique_id}"
+        )
+    if btn:
+        st.success("Configurações baixadas com sucesso!")
+
     # Ajustar o batch size para modelos maiores
     if model_name in ['ResNet50', 'DenseNet121']:
         batch_size = min(batch_size, 8)  # Ajuste conforme necessário
         st.write(f"Ajustando o tamanho do lote para {batch_size} devido ao uso do {model_name}")
 
-    # Carregar o dataset original sem transformações
-    full_dataset = datasets.ImageFolder(root=data_dir)
+    # Dataloaders já foram fornecidos como parâmetros
 
-    # Verificar se há classes suficientes
-    if len(full_dataset.classes) < num_classes:
-        st.error(f"O número de classes encontradas ({len(full_dataset.classes)}) é menor do que o número especificado ({num_classes}).")
+    # Criar o modelo
+    model = get_model(model_name, num_classes, dropout_p=0.5, fine_tune=fine_tune)
+    if model is None:
         return None
 
-    # Exibir dados
-    visualize_data(full_dataset, full_dataset.classes)
-    plot_class_distribution(full_dataset, full_dataset.classes)
-
-    # Divisão dos dados
-    dataset_size = len(full_dataset)
-    indices = list(range(dataset_size))
-    np.random.shuffle(indices)
-
-    train_end = int(train_split * dataset_size)
-    valid_end = int((train_split + valid_split) * dataset_size)
-
-    train_indices = indices[:train_end]
-    valid_indices = indices[train_end:valid_end]
-    test_indices = indices[valid_end:]
-
-    # Verificar se há dados suficientes em cada conjunto
-    if len(train_indices) == 0 or len(valid_indices) == 0 or len(test_indices) == 0:
-        st.error("Divisão dos dados resultou em um conjunto vazio. Ajuste os percentuais de divisão.")
-        return None
-
-    # Criar datasets para treino, validação e teste
-    train_dataset = torch.utils.data.Subset(full_dataset, train_indices)
-    valid_dataset = torch.utils.data.Subset(full_dataset, valid_indices)
-    test_dataset = torch.utils.data.Subset(full_dataset, test_indices)
-
-    # Criar dataframes para os conjuntos de treinamento, validação e teste com data augmentation e embeddings
-    model_for_embeddings = get_model(model_name, num_classes, dropout_p=0.5, fine_tune=False)
-    if model_for_embeddings is None:
-        return None
-
-    st.write("**Processando o conjunto de treinamento para incluir Data Augmentation e Embeddings...**")
-    train_df = apply_transforms_and_get_embeddings(train_dataset, model_for_embeddings, train_transforms, batch_size=batch_size)
-    st.write("**Processando o conjunto de validação...**")
-    valid_df = apply_transforms_and_get_embeddings(valid_dataset, model_for_embeddings, test_transforms, batch_size=batch_size)
-    st.write("**Processando o conjunto de teste...**")
-    test_df = apply_transforms_and_get_embeddings(test_dataset, model_for_embeddings, test_transforms, batch_size=batch_size)
-
-    # Mapear rótulos para nomes de classes
-    class_to_idx = full_dataset.class_to_idx
-    idx_to_class = {v: k for k, v in class_to_idx.items()}
-
-    train_df['class_name'] = train_df['label'].map(idx_to_class)
-    valid_df['class_name'] = valid_df['label'].map(idx_to_class)
-    test_df['class_name'] = test_df['label'].map(idx_to_class)
-
-    # Exibir dataframes no Streamlit sem a coluna 'augmented_image' e sem limitar a 5 linhas
-    st.write("**Dataframe do Conjunto de Treinamento com Data Augmentation e Embeddings:**")
-    st.dataframe(train_df.drop(columns=['augmented_image']))
-
-    st.write("**Dataframe do Conjunto de Validação:**")
-    st.dataframe(valid_df.drop(columns=['augmented_image']))
-
-    st.write("**Dataframe do Conjunto de Teste:**")
-    st.dataframe(test_df.drop(columns=['augmented_image']))
-
-    # Exibir todas as imagens augmentadas (ou limitar conforme necessário)
-    display_all_augmented_images(train_df, full_dataset.classes, max_images=100)  # Ajuste 'max_images' conforme necessário
-
-    # Visualizar os embeddings
-    visualize_embeddings(train_df, full_dataset.classes)
-
-    # Exibir contagem de imagens por classe nos conjuntos de treinamento e teste
-    st.write("**Distribuição das Classes no Conjunto de Treinamento:**")
-    train_class_counts = train_df['class_name'].value_counts()
-    st.bar_chart(train_class_counts)
-
-    st.write("**Distribuição das Classes no Conjunto de Teste:**")
-    test_class_counts = test_df['class_name'].value_counts()
-    st.bar_chart(test_class_counts)
-
-    # Atualizar os datasets com as transformações para serem usados nos DataLoaders
-    train_dataset = CustomDataset(torch.utils.data.Subset(full_dataset, train_indices), transform=train_transforms)
-    valid_dataset = CustomDataset(torch.utils.data.Subset(full_dataset, valid_indices), transform=test_transforms)
-    test_dataset = CustomDataset(torch.utils.data.Subset(full_dataset, test_indices), transform=test_transforms)
-
-    # Dataloaders
-    g = torch.Generator()
-    g.manual_seed(42)
-
+    # Definir a função de perda
     if use_weighted_loss:
-        targets = [full_dataset.targets[i] for i in train_indices]
+        # Calcula os pesos das classes com base no conjunto de treinamento
+        targets = []
+        for _, labels in train_loader:
+            targets.extend(labels.numpy())
         class_counts = np.bincount(targets)
         class_counts = class_counts + 1e-6  # Para evitar divisão por zero
         class_weights = 1.0 / class_counts
@@ -454,15 +425,6 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
         criterion = nn.CrossEntropyLoss(weight=class_weights)
     else:
         criterion = nn.CrossEntropyLoss()
-
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, worker_init_fn=seed_worker, generator=g)
-    valid_loader = DataLoader(valid_dataset, batch_size=batch_size, shuffle=False, worker_init_fn=seed_worker, generator=g)
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, worker_init_fn=seed_worker, generator=g)
-
-    # Carregar o modelo
-    model = get_model(model_name, num_classes, dropout_p=0.5, fine_tune=fine_tune)
-    if model is None:
-        return None
 
     # Definir o otimizador com L2 regularization (weight_decay)
     optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=learning_rate, weight_decay=l2_lambda)
@@ -519,8 +481,8 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
             running_loss += loss.item() * inputs.size(0)
             running_corrects += torch.sum(preds == labels.data)
 
-        epoch_loss = running_loss / len(train_dataset)
-        epoch_acc = running_corrects.double() / len(train_dataset)
+        epoch_loss = running_loss / len(train_loader.dataset)
+        epoch_acc = running_corrects.double() / len(train_loader.dataset)
         st.session_state[train_losses_key].append(epoch_loss)
         st.session_state[train_accuracies_key].append(epoch_acc.item())
 
@@ -541,8 +503,8 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
                 valid_running_loss += loss.item() * inputs.size(0)
                 valid_running_corrects += torch.sum(preds == labels.data)
 
-        valid_epoch_loss = valid_running_loss / len(valid_dataset)
-        valid_epoch_acc = valid_running_corrects.double() / len(valid_dataset)
+        valid_epoch_loss = valid_running_loss / len(valid_loader.dataset)
+        valid_epoch_acc = valid_running_corrects.double() / len(valid_loader.dataset)
         st.session_state[valid_losses_key].append(valid_epoch_loss)
         st.session_state[valid_accuracies_key].append(valid_epoch_acc.item())
 
@@ -569,7 +531,19 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
             plt.tight_layout()
             plt.savefig(f'loss_accuracy_{model_name}_run{run_id}.png')
             st.image(f'loss_accuracy_{model_name}_run{run_id}.png', caption='Perda e Acurácia por Época')
-            plt.close(fig)  # Fechar a figura para liberar memória
+
+            # Disponibilizar para download com chave única por época
+            unique_id = uuid.uuid4()
+            with open(f'loss_accuracy_{model_name}_run{run_id}.png', "rb") as file:
+                btn = st.download_button(
+                    label="Download do Gráfico de Perda e Acurácia (Atualizado)",
+                    data=file,
+                    file_name=f'loss_accuracy_{model_name}_run{run_id}.png',
+                    mime="image/png",
+                    key=f"download_loss_accuracy_{model_name}_run{run_id}_{unique_id}"
+                )
+            if btn:
+                st.success("Gráfico de perda e acurácia baixado com sucesso!")
 
         # Atualizar texto de progresso
         progress = (epoch + 1) / epochs
@@ -605,27 +579,21 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
 
     # Avaliação Final no Conjunto de Teste
     st.write("**Avaliação no Conjunto de Teste**")
-    metrics = compute_metrics(model, test_loader, full_dataset.classes, model_name, run_id)
+    metrics = compute_metrics(model, test_loader, st.session_state['classes'], model_name, run_id)
 
     # Análise de Erros
     st.write("**Análise de Erros**")
-    error_analysis(model, test_loader, full_dataset.classes, model_name, run_id)
+    error_analysis(model, test_loader, st.session_state['classes'], model_name, run_id)
 
     # Clusterização e Análise Comparativa
     st.write("**Análise de Clusterização**")
-    perform_clustering(model, test_loader, full_dataset.classes, model_name, run_id)
-
-    # Liberar memória dos data loaders
-    del train_loader, valid_loader, test_loader
-    torch.cuda.empty_cache()  # Limpar cache da GPU
-    gc.collect()
+    perform_clustering(model, test_loader, st.session_state['classes'], model_name, run_id)
 
     # Armazenar o modelo e as classes no st.session_state
     st.session_state['model'] = model
-    st.session_state['classes'] = full_dataset.classes
     st.session_state['trained_model_name'] = model_name  # Armazena o nome do modelo treinado
 
-    return model, full_dataset.classes, metrics
+    return model, st.session_state['classes'], metrics
 
 
 def plot_metrics(train_losses, valid_losses, train_accuracies, valid_accuracies, model_name, run_id):
@@ -655,18 +623,19 @@ def plot_metrics(train_losses, valid_losses, train_accuracies, valid_accuracies,
     plot_filename = f'loss_accuracy_final_{model_name}_run{run_id}.png'
     fig.savefig(plot_filename)
     st.image(plot_filename, caption='Perda e Acurácia Finais')
-    plt.close(fig)  # Fechar a figura para liberar memória
 
     # Disponibilizar para download
+    unique_id = uuid.uuid4()
     with open(plot_filename, "rb") as file:
         btn = st.download_button(
-            label="Download dos Gráficos de Perda e Acurácia",
+            label="Download dos Gráficos de Perda e Acurácia Finais",
             data=file,
             file_name=plot_filename,
-            mime="image/png"
+            mime="image/png",
+            key=f"download_loss_accuracy_final_{model_name}_run{run_id}_{unique_id}"
         )
     if btn:
-        st.success("Gráficos baixados com sucesso!")
+        st.success("Gráficos finais de perda e acurácia baixados com sucesso!")
 
 
 def compute_metrics(model, dataloader, classes, model_name, run_id):
@@ -702,6 +671,19 @@ def compute_metrics(model, dataloader, classes, model_name, run_id):
     report_df.to_csv(report_filename)
     st.write(f"Relatório de classificação salvo como `{report_filename}`")
 
+    # Disponibilizar para download
+    unique_id = uuid.uuid4()
+    with open(report_filename, "rb") as file:
+        btn = st.download_button(
+            label="Download do Relatório de Classificação",
+            data=file,
+            file_name=report_filename,
+            mime="text/csv",
+            key=f"download_classification_report_{model_name}_run{run_id}_{unique_id}"
+        )
+    if btn:
+        st.success("Relatório de classificação baixado com sucesso!")
+
     # Matriz de Confusão Normalizada
     cm = confusion_matrix(all_labels, all_preds, normalize='true')
     fig, ax = plt.subplots()
@@ -713,15 +695,16 @@ def compute_metrics(model, dataloader, classes, model_name, run_id):
     cm_filename = f'confusion_matrix_{model_name}_run{run_id}.png'
     fig.savefig(cm_filename)
     st.image(cm_filename, caption='Matriz de Confusão Normalizada')
-    plt.close(fig)  # Fechar a figura para liberar memória
 
     # Disponibilizar para download
+    unique_id = uuid.uuid4()
     with open(cm_filename, "rb") as file:
         btn = st.download_button(
             label="Download da Matriz de Confusão",
             data=file,
             file_name=cm_filename,
-            mime="image/png"
+            mime="image/png",
+            key=f"download_confusion_matrix_{model_name}_run{run_id}_{unique_id}"
         )
     if btn:
         st.success("Matriz de Confusão baixada com sucesso!")
@@ -742,15 +725,16 @@ def compute_metrics(model, dataloader, classes, model_name, run_id):
         roc_filename = f'roc_curve_{model_name}_run{run_id}.png'
         fig.savefig(roc_filename)
         st.image(roc_filename, caption='Curva ROC')
-        plt.close(fig)  # Fechar a figura para liberar memória
 
         # Disponibilizar para download
+        unique_id = uuid.uuid4()
         with open(roc_filename, "rb") as file:
             btn = st.download_button(
                 label="Download da Curva ROC",
                 data=file,
                 file_name=roc_filename,
-                mime="image/png"
+                mime="image/png",
+                key=f"download_roc_curve_{model_name}_run{run_id}_{unique_id}"
             )
         if btn:
             st.success("Curva ROC baixada com sucesso!")
@@ -767,12 +751,14 @@ def compute_metrics(model, dataloader, classes, model_name, run_id):
         st.write(f"AUC-ROC Média Ponderada salvo como `{auc_filename}`")
 
         # Disponibilizar para download
+        unique_id = uuid.uuid4()
         with open(auc_filename, "rb") as file:
             btn = st.download_button(
                 label="Download do AUC-ROC",
                 data=file,
                 file_name=auc_filename,
-                mime="text/plain"
+                mime="text/plain",
+                key=f"download_auc_roc_{model_name}_run{run_id}_{unique_id}"
             )
         if btn:
             st.success("AUC-ROC baixado com sucesso!")
@@ -802,12 +788,14 @@ def compute_metrics(model, dataloader, classes, model_name, run_id):
     st.write(f"Métricas salvas como `{metrics_filename}`")
 
     # Disponibilizar para download
+    unique_id = uuid.uuid4()
     with open(metrics_filename, "rb") as file:
         btn = st.download_button(
             label="Download das Métricas",
             data=file,
             file_name=metrics_filename,
-            mime="text/csv"
+            mime="text/csv",
+            key=f"download_metrics_{model_name}_run{run_id}_{unique_id}"
         )
     if btn:
         st.success("Métricas baixadas com sucesso!")
@@ -851,15 +839,16 @@ def error_analysis(model, dataloader, classes, model_name, run_id):
         plt.tight_layout()
         plt.savefig(f'misclassified_{model_name}_run{run_id}.png')
         st.image(f'misclassified_{model_name}_run{run_id}.png', caption='Exemplos de Erros de Classificação')
-        plt.close(fig)  # Fechar a figura para liberar memória
 
         # Disponibilizar para download
+        unique_id = uuid.uuid4()
         with open(f'misclassified_{model_name}_run{run_id}.png', "rb") as file:
             btn = st.download_button(
                 label="Download das Imagens Mal Classificadas",
                 data=file,
                 file_name=f'misclassified_{model_name}_run{run_id}.png',
-                mime="image/png"
+                mime="image/png",
+                key=f"download_misclassified_{model_name}_run{run_id}_{unique_id}"
             )
         if btn:
             st.success("Imagens mal classificadas baixadas com sucesso!")
@@ -925,15 +914,16 @@ def perform_clustering(model, dataloader, classes, model_name, run_id):
     clustering_filename = f'clustering_{model_name}_run{run_id}.png'
     fig.savefig(clustering_filename)
     st.image(clustering_filename, caption='Resultados da Clusterização')
-    plt.close(fig)  # Fechar a figura para liberar memória
 
     # Disponibilizar para download
+    unique_id = uuid.uuid4()
     with open(clustering_filename, "rb") as file:
         btn = st.download_button(
             label="Download dos Resultados de Clusterização",
             data=file,
             file_name=clustering_filename,
-            mime="image/png"
+            mime="image/png",
+            key=f"download_clustering_{model_name}_run{run_id}_{unique_id}"
         )
     if btn:
         st.success("Resultados de clusterização baixados com sucesso!")
@@ -962,12 +952,14 @@ def perform_clustering(model, dataloader, classes, model_name, run_id):
     st.write(f"Métricas de clusterização salvas como `{clustering_metrics_filename}`")
 
     # Disponibilizar para download
+    unique_id = uuid.uuid4()
     with open(clustering_metrics_filename, "rb") as file:
         btn = st.download_button(
             label="Download das Métricas de Clusterização",
             data=file,
             file_name=clustering_metrics_filename,
-            mime="text/csv"
+            mime="text/csv",
+            key=f"download_clustering_metrics_{model_name}_run{run_id}_{unique_id}"
         )
     if btn:
         st.success("Métricas de clusterização baixadas com sucesso!")
@@ -1040,15 +1032,16 @@ def visualize_activations(model, image, class_names, model_name, run_id):
     activation_filename = f'grad_cam_{model_name}_run{run_id}.png'
     fig.savefig(activation_filename)
     st.image(activation_filename, caption='Visualização de Grad-CAM')
-    plt.close(fig)  # Fechar a figura para liberar memória
 
     # Disponibilizar para download
+    unique_id = uuid.uuid4()
     with open(activation_filename, "rb") as file:
         btn = st.download_button(
             label="Download da Visualização de Grad-CAM",
             data=file,
             file_name=activation_filename,
-            mime="image/png"
+            mime="image/png",
+            key=f"download_grad_cam_{model_name}_run{run_id}_{unique_id}"
         )
     if btn:
         st.success("Visualização de Grad-CAM baixada com sucesso!")
@@ -1210,16 +1203,100 @@ def main():
                     zip_ref.extractall(temp_dir)
                 data_dir = temp_dir
 
+                # Carregar o dataset original sem transformações
+                full_dataset = datasets.ImageFolder(root=data_dir)
+
+                # Verificar se há classes suficientes
+                if len(full_dataset.classes) < num_classes:
+                    st.error(f"O número de classes encontradas ({len(full_dataset.classes)}) é menor do que o número especificado ({num_classes}).")
+                    return
+
+                st.session_state['classes'] = full_dataset.classes  # Armazenar as classes
+
+                # Exibir dados
+                visualize_data(full_dataset, full_dataset.classes)
+                plot_class_distribution(full_dataset, full_dataset.classes)
+
+                # Divisão dos dados
+                dataset_size = len(full_dataset)
+                indices = list(range(dataset_size))
+                np.random.shuffle(indices)
+
+                train_end = int(train_split * dataset_size)
+                valid_end = int((train_split + valid_split) * dataset_size)
+
+                train_indices = indices[:train_end]
+                valid_indices = indices[train_end:valid_end]
+                test_indices = indices[valid_end:]
+
+                # Verificar se há dados suficientes em cada conjunto
+                if len(train_indices) == 0 or len(valid_indices) == 0 or len(test_indices) == 0:
+                    st.error("Divisão dos dados resultou em um conjunto vazio. Ajuste os percentuais de divisão.")
+                    return
+
+                # Criar datasets para treino, validação e teste
+                train_dataset = torch.utils.data.Subset(full_dataset, train_indices)
+                valid_dataset = torch.utils.data.Subset(full_dataset, valid_indices)
+                test_dataset = torch.utils.data.Subset(full_dataset, test_indices)
+
+                # Atualizar os datasets com as transformações para serem usados nos DataLoaders
+                train_dataset = CustomDataset(train_dataset, transform=train_transforms)
+                valid_dataset = CustomDataset(valid_dataset, transform=test_transforms)
+                test_dataset = CustomDataset(test_dataset, transform=test_transforms)
+
+                # Dataloaders
+                g = torch.Generator()
+                g.manual_seed(42)
+
+                train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, worker_init_fn=seed_worker, generator=g)
+                valid_loader = DataLoader(valid_dataset, batch_size=batch_size, shuffle=False, worker_init_fn=seed_worker, generator=g)
+                test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, worker_init_fn=seed_worker, generator=g)
+
+                # Aplicar Data Augmentation e obter embeddings usando um dos modelos (por exemplo, ResNet18)
+                base_model = get_model('ResNet18', num_classes)
+                if base_model is None:
+                    st.error("Erro ao carregar o modelo base para extração de embeddings.")
+                    return
+
+                st.write("**Extraindo embeddings e aplicando Data Augmentation no conjunto de treinamento...**")
+                df_embeddings = apply_transforms_and_get_embeddings(train_dataset, base_model, train_transforms, batch_size=batch_size)
+
+                # Visualizar as primeiras 20 imagens após Data Augmentation
+                display_all_augmented_images(df_embeddings, full_dataset.classes, max_images=20)
+
+                # Visualizar embeddings em 2D
+                visualize_embeddings(df_embeddings, full_dataset.classes)
+
+                # Salvar o DataFrame de embeddings
+                df_embeddings_filename = 'embeddings_dataframe.csv'
+                df_embeddings.to_csv(df_embeddings_filename, index=False)
+                st.write(f"DataFrame de embeddings salvo como `{df_embeddings_filename}`")
+
+                # Disponibilizar para download
+                unique_id = uuid.uuid4()
+                with open(df_embeddings_filename, "rb") as file:
+                    btn = st.download_button(
+                        label="Download do DataFrame de Embeddings",
+                        data=file,
+                        file_name=df_embeddings_filename,
+                        mime="text/csv",
+                        key=f"download_embeddings_dataframe_{unique_id}"
+                    )
+                if btn:
+                    st.success("DataFrame de embeddings baixado com sucesso!")
+
                 for i, model_name in enumerate(model_list):
                     for run in range(1, runs_per_model + 1):
                         st.write(f"**Treinando Modelo {i+1}/{len(model_list)} ({model_name}) - Execução {run}/{runs_per_model}**")
                         model_id = f"model_{i+1}"
                         run_id = run
+
+                        # Chamar a função train_model com os datasets pré-processados
                         model_data = train_model(
-                            data_dir, num_classes, model_name, fine_tune,
-                            epochs, learning_rate, batch_size, train_split,
-                            valid_split, use_weighted_loss, l2_lambda, patience,
-                            model_id=model_id, run_id=run_id  # Passar o run_id para métricas distintas
+                            train_loader, valid_loader, test_loader, num_classes, model_name, fine_tune,
+                            epochs, learning_rate, batch_size,
+                            use_weighted_loss, l2_lambda, patience,
+                            model_id=model_id, run_id=run_id
                         )
 
                         if model_data is None:
@@ -1251,13 +1328,14 @@ def main():
                         st.write(f"Classes salvas como `{classes_filename}`")
 
                         # Disponibilizar para download
+                        unique_id = uuid.uuid4()
                         with open(model_filename, "rb") as file:
                             btn = st.download_button(
                                 label=f"Download do Modelo {model_name}_Execução_{run}",
                                 data=file,
                                 file_name=model_filename,
                                 mime="application/octet-stream",
-                                key=f"download_model_button_{model_name}_{run}"
+                                key=f"download_model_{model_name}_run{run}_{unique_id}"
                             )
                         if btn:
                             st.success(f"Modelo {model_name}_run{run} baixado com sucesso!")
@@ -1268,7 +1346,7 @@ def main():
                                 data=file,
                                 file_name=classes_filename,
                                 mime="text/plain",
-                                key=f"download_classes_button_{model_name}_{run}"
+                                key=f"download_classes_{model_name}_run{run}_{unique_id}"
                             )
                         if btn:
                             st.success(f"Classes {model_name}_run{run} baixadas com sucesso!")
@@ -1280,108 +1358,17 @@ def main():
                         st.write(f"Métricas salvas como `{metrics_filename}`")
 
                         # Disponibilizar para download
+                        unique_id = uuid.uuid4()
                         with open(metrics_filename, "rb") as file:
                             btn = st.download_button(
                                 label=f"Download das Métricas para {model_name}_Execução_{run}",
                                 data=file,
                                 file_name=metrics_filename,
                                 mime="text/csv",
-                                key=f"download_metrics_button_{model_name}_{run}"
+                                key=f"download_metrics_{model_name}_run{run}_{unique_id}"
                             )
                         if btn:
                             st.success(f"Métricas {model_name}_run{run} baixadas com sucesso!")
-
-                        # Limpar cache e liberar memória
-                        del model
-                        torch.cuda.empty_cache()
-                        gc.collect()
-
-                # Limpar o diretório temporário
-                shutil.rmtree(temp_dir)
-
-                # Exibir as métricas coletadas após o treinamento
-                if len(st.session_state['all_model_metrics']) > 0:
-                    st.header("Métricas de Desempenho de Todos os Modelos")
-                    metrics_df = pd.DataFrame(st.session_state['all_model_metrics'])
-                    st.dataframe(metrics_df)
-
-                    # Salvar métricas coletadas em um único arquivo
-                    all_metrics_filename = 'all_model_metrics.csv'
-                    metrics_df.to_csv(all_metrics_filename, index=False)
-                    st.write(f"Métricas de todos os modelos salvas como `{all_metrics_filename}`")
-
-                    # Disponibilizar para download
-                    with open(all_metrics_filename, "rb") as file:
-                        btn = st.download_button(
-                            label="Download das Métricas de Todos os Modelos",
-                            data=file,
-                            file_name=all_metrics_filename,
-                            mime="text/csv"
-                        )
-                    if btn:
-                        st.success("Métricas de todos os modelos baixadas com sucesso!")
-
-                    # Calcular Intervalos de Confiança para Cada Métrica
-                    st.subheader("Intervalos de Confiança para as Métricas de Desempenho")
-                    confidence_level = 0.95
-                    for metric in ['Accuracy', 'Precision', 'Recall', 'F1_Score', 'ROC_AUC']:
-                        data = metrics_df[metric].dropna()
-                        if len(data) > 1:
-                            conf_interval = stats.t.interval(confidence_level, len(data)-1, loc=np.mean(data), scale=stats.sem(data))
-                            st.write(f"**{metric}:** Média = {np.mean(data):.4f}, Intervalo de Confiança de {int(confidence_level*100)}% = [{conf_interval[0]:.4f}, {conf_interval[1]:.4f}]")
-                        elif len(data) == 1:
-                            st.write(f"**{metric}:** Apenas uma observação disponível.")
-                        else:
-                            st.write(f"**{metric}:** Nenhum dado disponível.")
-
-                    # Realizar ANOVA para Cada Métrica
-                    st.subheader("Análise de Variância (ANOVA) para as Métricas de Desempenho")
-                    for metric in ['Accuracy', 'Precision', 'Recall', 'F1_Score', 'ROC_AUC']:
-                        data = metrics_df[['Model', metric]].dropna()
-                        st.write(f"**Métrica: {metric}**")
-                        # Verificar se há dados suficientes
-                        group_sizes = data.groupby('Model').size()
-                        st.write("**Tamanhos dos Grupos (Modelos):**")
-                        st.write(group_sizes)
-                        if len(group_sizes) >= 2 and (group_sizes >= 2).all():
-                            # Preparar os dados para ANOVA
-                            groups = data['Model'].values
-                            metric_data = data[metric].values
-                            f_val, p_val = perform_anova(metric_data, groups)
-                            visualize_anova_results(f_val, p_val)
-                        else:
-                            st.write(f"**{metric}:** ANOVA não pode ser realizada. É necessário pelo menos dois modelos com pelo menos duas observações cada.")
-
-                    # Realizar Teste Tukey HSD para Cada Métrica
-                    st.subheader("Teste Post-Hoc Tukey HSD para as Métricas de Desempenho")
-                    for metric in ['Accuracy', 'Precision', 'Recall', 'F1_Score', 'ROC_AUC']:
-                        data = metrics_df[['Model', metric]].dropna()
-                        group_sizes = data.groupby('Model').size()
-                        if len(group_sizes) >= 2 and (group_sizes >= 2).all():
-                            # Supondo que cada modelo seja um grupo distinto
-                            tukey = pairwise_tukeyhsd(endog=data[metric], groups=data['Model'], alpha=0.05)
-                            st.write(f"**{metric}:**")
-                            st.text(tukey.summary())
-                            # Salvar o resumo do Tukey
-                            tukey_summary = tukey.summary().as_text()
-                            tukey_filename = f'tukey_{metric}_{model_name}_run{run_id}.txt'
-                            with open(tukey_filename, 'w') as f:
-                                f.write(tukey_summary)
-                            st.write(f"Resumo do Teste Tukey HSD salvo como `{tukey_filename}`")
-
-                            # Disponibilizar para download
-                            with open(tukey_filename, "rb") as file:
-                                btn = st.download_button(
-                                    label=f"Download do Resumo Tukey para {metric}",
-                                    data=file,
-                                    file_name=tukey_filename,
-                                    mime="text/plain",
-                                    key=f"download_tukey_{metric}_{model_name}_{run_id}"
-                                )
-                            if btn:
-                                st.success(f"Resumo Tukey para {metric} baixado com sucesso!")
-                        else:
-                            st.write(f"**{metric}:** Teste Tukey HSD não pode ser realizado. É necessário pelo menos dois modelos com pelo menos duas observações cada.")
 
             except Exception as e:
                 st.error(f"Erro durante o treinamento múltiplo: {e}")
@@ -1445,7 +1432,6 @@ def main():
 
                 if model_data is None:
                     st.error("Erro no treinamento do modelo.")
-                    shutil.rmtree(temp_dir)
                     return
 
                 model, classes, metrics = model_data
@@ -1465,13 +1451,14 @@ def main():
                 st.write(f"Classes salvas como `{classes_filename}`")
 
                 # Disponibilizar para download
+                unique_id = uuid.uuid4()
                 with open(model_filename, "rb") as file:
                     btn = st.download_button(
                         label="Download do Modelo",
                         data=file,
                         file_name=model_filename,
                         mime="application/octet-stream",
-                        key="download_model_button_single"
+                        key=f"download_model_button_single_{unique_id}"
                     )
                 if btn:
                     st.success("Modelo baixado com sucesso!")
@@ -1482,7 +1469,7 @@ def main():
                         data=file,
                         file_name=classes_filename,
                         mime="text/plain",
-                        key="download_classes_button_single"
+                        key=f"download_classes_button_single_{unique_id}"
                     )
                 if btn:
                     st.success("Classes baixadas com sucesso!")
@@ -1494,19 +1481,17 @@ def main():
                 st.write(f"Métricas salvas como `{metrics_filename}`")
 
                 # Disponibilizar para download
+                unique_id = uuid.uuid4()
                 with open(metrics_filename, "rb") as file:
                     btn = st.download_button(
                         label="Download das Métricas",
                         data=file,
                         file_name=metrics_filename,
                         mime="text/csv",
-                        key="download_metrics_button_single"
+                        key=f"download_metrics_button_single_{unique_id}"
                     )
                 if btn:
                     st.success("Métricas baixadas com sucesso!")
-
-                # Limpar o diretório temporário
-                shutil.rmtree(temp_dir)
 
             except Exception as e:
                 st.error(f"Erro durante o treinamento do modelo único: {e}")

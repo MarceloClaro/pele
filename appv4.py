@@ -665,14 +665,14 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
             plt.savefig(f'loss_accuracy_{model_name}_run{run_id}.png')
             st.image(f'loss_accuracy_{model_name}_run{run_id}.png', caption='Perda e Acurácia por Época')
 
-            # Disponibilizar para download
+            # Disponibilizar para download com chave única por época
             with open(f'loss_accuracy_{model_name}_run{run_id}.png', "rb") as file:
                 btn = st.download_button(
                     label="Download do Gráfico de Perda e Acurácia (Atualizado)",
                     data=file,
                     file_name=f'loss_accuracy_{model_name}_run{run_id}.png',
                     mime="image/png",
-                    key=f"download_loss_accuracy_{model_name}_run{run_id}"
+                    key=f"download_loss_accuracy_{model_name}_run{run_id}_epoch{epoch}"
                 )
             if btn:
                 st.success("Gráfico de perda e acurácia baixado com sucesso!")
@@ -727,7 +727,6 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
     st.session_state['trained_model_name'] = model_name  # Armazena o nome do modelo treinado
 
     return model, full_dataset.classes, metrics
-
 
 def plot_metrics(train_losses, valid_losses, train_accuracies, valid_accuracies, model_name, run_id):
     """

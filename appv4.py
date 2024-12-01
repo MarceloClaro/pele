@@ -35,6 +35,7 @@ import io
 import warnings
 from datetime import datetime
 from scipy import stats
+import uuid  # Importação do módulo uuid para gerar identificadores únicos
 
 # Supressão dos avisos relacionados ao torch.classes
 warnings.filterwarnings("ignore", category=UserWarning, message=".*torch.classes.*")
@@ -128,13 +129,14 @@ def visualize_data(dataset, classes):
     st.image("visualize_data.png", caption='Exemplos do Conjunto de Dados')
 
     # Disponibilizar para download
+    unique_id = uuid.uuid4()
     with open("visualize_data.png", "rb") as file:
         btn = st.download_button(
             label="Download da Visualização do Conjunto de Dados",
             data=file,
             file_name="visualize_data.png",
             mime="image/png",
-            key="download_visualize_data"
+            key=f"download_visualize_data_{unique_id}"
         )
     if btn:
         st.success("Visualização do conjunto de dados baixada com sucesso!")
@@ -175,13 +177,14 @@ def plot_class_distribution(dataset, classes):
     st.image("class_distribution.png", caption='Distribuição das Classes')
 
     # Disponibilizar para download
+    unique_id = uuid.uuid4()
     with open("class_distribution.png", "rb") as file:
         btn = st.download_button(
             label="Download da Distribuição das Classes",
             data=file,
             file_name="class_distribution.png",
             mime="image/png",
-            key="download_class_distribution"
+            key=f"download_class_distribution_{unique_id}"
         )
     if btn:
         st.success("Distribuição das classes baixada com sucesso!")
@@ -343,13 +346,14 @@ def visualize_embeddings(df, class_names):
     st.image("embeddings_pca.png", caption='Visualização dos Embeddings com PCA')
 
     # Disponibilizar para download
+    unique_id = uuid.uuid4()
     with open("embeddings_pca.png", "rb") as file:
         btn = st.download_button(
             label="Download da Visualização dos Embeddings",
             data=file,
             file_name="embeddings_pca.png",
             mime="image/png",
-            key="download_embeddings_pca"
+            key=f"download_embeddings_pca_{unique_id}"
         )
     if btn:
         st.success("Visualização dos embeddings baixada com sucesso!")
@@ -386,13 +390,14 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
     st.write(f"Configurações salvas como `{config_filename}`")
 
     # Disponibilizar para download
+    unique_id = uuid.uuid4()
     with open(config_filename, "rb") as file:
         btn = st.download_button(
             label="Download das Configurações",
             data=file,
             file_name=config_filename,
             mime="application/json",
-            key=f"download_config_{model_name}_run{run_id}"
+            key=f"download_config_{model_name}_run{run_id}_{unique_id}"
         )
     if btn:
         st.success("Configurações baixadas com sucesso!")
@@ -465,13 +470,14 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
     train_df.to_csv(train_df_filename, index=False)
     st.write(f"DataFrame do conjunto de treinamento salvo como `{train_df_filename}`")
     # Disponibilizar para download
+    unique_id = uuid.uuid4()
     with open(train_df_filename, "rb") as file:
         btn = st.download_button(
             label="Download do DataFrame de Treinamento",
             data=file,
             file_name=train_df_filename,
             mime="text/csv",
-            key=f"download_train_df_{model_name}_run{run_id}"
+            key=f"download_train_df_{model_name}_run{run_id}_{unique_id}"
         )
     if btn:
         st.success("DataFrame de treinamento baixado com sucesso!")
@@ -484,13 +490,14 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
     valid_df.to_csv(valid_df_filename, index=False)
     st.write(f"DataFrame do conjunto de validação salvo como `{valid_df_filename}`")
     # Disponibilizar para download
+    unique_id = uuid.uuid4()
     with open(valid_df_filename, "rb") as file:
         btn = st.download_button(
             label="Download do DataFrame de Validação",
             data=file,
             file_name=valid_df_filename,
             mime="text/csv",
-            key=f"download_valid_df_{model_name}_run{run_id}"
+            key=f"download_valid_df_{model_name}_run{run_id}_{unique_id}"
         )
     if btn:
         st.success("DataFrame de validação baixado com sucesso!")
@@ -503,13 +510,14 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
     test_df.to_csv(test_df_filename, index=False)
     st.write(f"DataFrame do conjunto de teste salvo como `{test_df_filename}`")
     # Disponibilizar para download
+    unique_id = uuid.uuid4()
     with open(test_df_filename, "rb") as file:
         btn = st.download_button(
             label="Download do DataFrame de Teste",
             data=file,
             file_name=test_df_filename,
             mime="text/csv",
-            key=f"download_test_df_{model_name}_run{run_id}"
+            key=f"download_test_df_{model_name}_run{run_id}_{unique_id}"
         )
     if btn:
         st.success("DataFrame de teste baixado com sucesso!")
@@ -666,13 +674,14 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
             st.image(f'loss_accuracy_{model_name}_run{run_id}.png', caption='Perda e Acurácia por Época')
 
             # Disponibilizar para download com chave única por época
+            unique_id = uuid.uuid4()
             with open(f'loss_accuracy_{model_name}_run{run_id}.png', "rb") as file:
                 btn = st.download_button(
                     label="Download do Gráfico de Perda e Acurácia (Atualizado)",
                     data=file,
                     file_name=f'loss_accuracy_{model_name}_run{run_id}.png',
                     mime="image/png",
-                    key=f"download_loss_accuracy_{model_name}_run{run_id}_epoch{epoch}"
+                    key=f"download_loss_accuracy_{model_name}_run{run_id}_{unique_id}"
                 )
             if btn:
                 st.success("Gráfico de perda e acurácia baixado com sucesso!")
@@ -728,6 +737,7 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
 
     return model, full_dataset.classes, metrics
 
+
 def plot_metrics(train_losses, valid_losses, train_accuracies, valid_accuracies, model_name, run_id):
     """
     Plota os gráficos de perda e acurácia e salva-os em arquivos.
@@ -757,13 +767,14 @@ def plot_metrics(train_losses, valid_losses, train_accuracies, valid_accuracies,
     st.image(plot_filename, caption='Perda e Acurácia Finais')
 
     # Disponibilizar para download
+    unique_id = uuid.uuid4()
     with open(plot_filename, "rb") as file:
         btn = st.download_button(
             label="Download dos Gráficos de Perda e Acurácia Finais",
             data=file,
             file_name=plot_filename,
             mime="image/png",
-            key=f"download_loss_accuracy_final_{model_name}_run{run_id}"
+            key=f"download_loss_accuracy_final_{model_name}_run{run_id}_{unique_id}"
         )
     if btn:
         st.success("Gráficos finais de perda e acurácia baixados com sucesso!")
@@ -803,13 +814,14 @@ def compute_metrics(model, dataloader, classes, model_name, run_id):
     st.write(f"Relatório de classificação salvo como `{report_filename}`")
 
     # Disponibilizar para download
+    unique_id = uuid.uuid4()
     with open(report_filename, "rb") as file:
         btn = st.download_button(
             label="Download do Relatório de Classificação",
             data=file,
             file_name=report_filename,
             mime="text/csv",
-            key=f"download_classification_report_{model_name}_run{run_id}"
+            key=f"download_classification_report_{model_name}_run{run_id}_{unique_id}"
         )
     if btn:
         st.success("Relatório de classificação baixado com sucesso!")
@@ -827,13 +839,14 @@ def compute_metrics(model, dataloader, classes, model_name, run_id):
     st.image(cm_filename, caption='Matriz de Confusão Normalizada')
 
     # Disponibilizar para download
+    unique_id = uuid.uuid4()
     with open(cm_filename, "rb") as file:
         btn = st.download_button(
             label="Download da Matriz de Confusão",
             data=file,
             file_name=cm_filename,
             mime="image/png",
-            key=f"download_confusion_matrix_{model_name}_run{run_id}"
+            key=f"download_confusion_matrix_{model_name}_run{run_id}_{unique_id}"
         )
     if btn:
         st.success("Matriz de Confusão baixada com sucesso!")
@@ -856,13 +869,14 @@ def compute_metrics(model, dataloader, classes, model_name, run_id):
         st.image(roc_filename, caption='Curva ROC')
 
         # Disponibilizar para download
+        unique_id = uuid.uuid4()
         with open(roc_filename, "rb") as file:
             btn = st.download_button(
                 label="Download da Curva ROC",
                 data=file,
                 file_name=roc_filename,
                 mime="image/png",
-                key=f"download_roc_curve_{model_name}_run{run_id}"
+                key=f"download_roc_curve_{model_name}_run{run_id}_{unique_id}"
             )
         if btn:
             st.success("Curva ROC baixada com sucesso!")
@@ -879,13 +893,14 @@ def compute_metrics(model, dataloader, classes, model_name, run_id):
         st.write(f"AUC-ROC Média Ponderada salvo como `{auc_filename}`")
 
         # Disponibilizar para download
+        unique_id = uuid.uuid4()
         with open(auc_filename, "rb") as file:
             btn = st.download_button(
                 label="Download do AUC-ROC",
                 data=file,
                 file_name=auc_filename,
                 mime="text/plain",
-                key=f"download_auc_roc_{model_name}_run{run_id}"
+                key=f"download_auc_roc_{model_name}_run{run_id}_{unique_id}"
             )
         if btn:
             st.success("AUC-ROC baixado com sucesso!")
@@ -915,13 +930,14 @@ def compute_metrics(model, dataloader, classes, model_name, run_id):
     st.write(f"Métricas salvas como `{metrics_filename}`")
 
     # Disponibilizar para download
+    unique_id = uuid.uuid4()
     with open(metrics_filename, "rb") as file:
         btn = st.download_button(
             label="Download das Métricas",
             data=file,
             file_name=metrics_filename,
             mime="text/csv",
-            key=f"download_metrics_{model_name}_run{run_id}"
+            key=f"download_metrics_{model_name}_run{run_id}_{unique_id}"
         )
     if btn:
         st.success("Métricas baixadas com sucesso!")
@@ -967,13 +983,14 @@ def error_analysis(model, dataloader, classes, model_name, run_id):
         st.image(f'misclassified_{model_name}_run{run_id}.png', caption='Exemplos de Erros de Classificação')
 
         # Disponibilizar para download
+        unique_id = uuid.uuid4()
         with open(f'misclassified_{model_name}_run{run_id}.png', "rb") as file:
             btn = st.download_button(
                 label="Download das Imagens Mal Classificadas",
                 data=file,
                 file_name=f'misclassified_{model_name}_run{run_id}.png',
                 mime="image/png",
-                key=f"download_misclassified_{model_name}_run{run_id}"
+                key=f"download_misclassified_{model_name}_run{run_id}_{unique_id}"
             )
         if btn:
             st.success("Imagens mal classificadas baixadas com sucesso!")
@@ -1041,13 +1058,14 @@ def perform_clustering(model, dataloader, classes, model_name, run_id):
     st.image(clustering_filename, caption='Resultados da Clusterização')
 
     # Disponibilizar para download
+    unique_id = uuid.uuid4()
     with open(clustering_filename, "rb") as file:
         btn = st.download_button(
             label="Download dos Resultados de Clusterização",
             data=file,
             file_name=clustering_filename,
             mime="image/png",
-            key=f"download_clustering_{model_name}_run{run_id}"
+            key=f"download_clustering_{model_name}_run{run_id}_{unique_id}"
         )
     if btn:
         st.success("Resultados de clusterização baixados com sucesso!")
@@ -1076,13 +1094,14 @@ def perform_clustering(model, dataloader, classes, model_name, run_id):
     st.write(f"Métricas de clusterização salvas como `{clustering_metrics_filename}`")
 
     # Disponibilizar para download
+    unique_id = uuid.uuid4()
     with open(clustering_metrics_filename, "rb") as file:
         btn = st.download_button(
             label="Download das Métricas de Clusterização",
             data=file,
             file_name=clustering_metrics_filename,
             mime="text/csv",
-            key=f"download_clustering_metrics_{model_name}_run{run_id}"
+            key=f"download_clustering_metrics_{model_name}_run{run_id}_{unique_id}"
         )
     if btn:
         st.success("Métricas de clusterização baixadas com sucesso!")
@@ -1157,13 +1176,14 @@ def visualize_activations(model, image, class_names, model_name, run_id):
     st.image(activation_filename, caption='Visualização de Grad-CAM')
 
     # Disponibilizar para download
+    unique_id = uuid.uuid4()
     with open(activation_filename, "rb") as file:
         btn = st.download_button(
             label="Download da Visualização de Grad-CAM",
             data=file,
             file_name=activation_filename,
             mime="image/png",
-            key=f"download_grad_cam_{model_name}_run{run_id}"
+            key=f"download_grad_cam_{model_name}_run{run_id}_{unique_id}"
         )
     if btn:
         st.success("Visualização de Grad-CAM baixada com sucesso!")
@@ -1366,13 +1386,14 @@ def main():
                         st.write(f"Classes salvas como `{classes_filename}`")
 
                         # Disponibilizar para download
+                        unique_id = uuid.uuid4()
                         with open(model_filename, "rb") as file:
                             btn = st.download_button(
                                 label=f"Download do Modelo {model_name}_Execução_{run}",
                                 data=file,
                                 file_name=model_filename,
                                 mime="application/octet-stream",
-                                key=f"download_model_{model_name}_run{run}"
+                                key=f"download_model_{model_name}_run{run}_{unique_id}"
                             )
                         if btn:
                             st.success(f"Modelo {model_name}_run{run} baixado com sucesso!")
@@ -1383,7 +1404,7 @@ def main():
                                 data=file,
                                 file_name=classes_filename,
                                 mime="text/plain",
-                                key=f"download_classes_{model_name}_run{run}"
+                                key=f"download_classes_{model_name}_run{run}_{unique_id}"
                             )
                         if btn:
                             st.success(f"Classes {model_name}_run{run} baixadas com sucesso!")
@@ -1395,13 +1416,14 @@ def main():
                         st.write(f"Métricas salvas como `{metrics_filename}`")
 
                         # Disponibilizar para download
+                        unique_id = uuid.uuid4()
                         with open(metrics_filename, "rb") as file:
                             btn = st.download_button(
                                 label=f"Download das Métricas para {model_name}_Execução_{run}",
                                 data=file,
                                 file_name=metrics_filename,
                                 mime="text/csv",
-                                key=f"download_metrics_{model_name}_run{run}"
+                                key=f"download_metrics_{model_name}_run{run}_{unique_id}"
                             )
                         if btn:
                             st.success(f"Métricas {model_name}_run{run} baixadas com sucesso!")
@@ -1487,13 +1509,14 @@ def main():
                 st.write(f"Classes salvas como `{classes_filename}`")
 
                 # Disponibilizar para download
+                unique_id = uuid.uuid4()
                 with open(model_filename, "rb") as file:
                     btn = st.download_button(
                         label="Download do Modelo",
                         data=file,
                         file_name=model_filename,
                         mime="application/octet-stream",
-                        key="download_model_button_single"
+                        key=f"download_model_button_single_{unique_id}"
                     )
                 if btn:
                     st.success("Modelo baixado com sucesso!")
@@ -1504,7 +1527,7 @@ def main():
                         data=file,
                         file_name=classes_filename,
                         mime="text/plain",
-                        key="download_classes_button_single"
+                        key=f"download_classes_button_single_{unique_id}"
                     )
                 if btn:
                     st.success("Classes baixadas com sucesso!")
@@ -1516,13 +1539,14 @@ def main():
                 st.write(f"Métricas salvas como `{metrics_filename}`")
 
                 # Disponibilizar para download
+                unique_id = uuid.uuid4()
                 with open(metrics_filename, "rb") as file:
                     btn = st.download_button(
                         label="Download das Métricas",
                         data=file,
                         file_name=metrics_filename,
                         mime="text/csv",
-                        key="download_metrics_button_single"
+                        key=f"download_metrics_button_single_{unique_id}"
                     )
                 if btn:
                     st.success("Métricas baixadas com sucesso!")

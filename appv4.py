@@ -1143,6 +1143,13 @@ def main():
     l2_lambda = st.sidebar.number_input("L2 Regularization (Weight Decay):", min_value=0.0, max_value=0.1, value=0.01, step=0.01, key="l2_lambda")
     patience = st.sidebar.number_input("Paciência para Early Stopping:", min_value=1, max_value=10, value=3, step=1, key="patience")
     use_weighted_loss = st.sidebar.checkbox("Usar Perda Ponderada para Classes Desbalanceadas", value=False, key="use_weighted_loss")
+
+    # Botão para limpar a memória
+    if st.sidebar.button("Limpar Memória"):
+        gc.collect()
+        torch.cuda.empty_cache()
+        st.sidebar.success("Memória limpa com sucesso!")
+
     if os.path.exists("eu.ico"):
         try:
             st.sidebar.image("eu.ico", width=80)

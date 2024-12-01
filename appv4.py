@@ -996,29 +996,32 @@ def main():
 
     # Checkboxes para seleção de modelos
     st.write("Selecione os modelos que deseja treinar:")
-    model_selection = {
-        'ResNet18': st.checkbox('ResNet18', value=True, key='model_resnet18'),
-        'ResNet50': st.checkbox('ResNet50', value=True, key='model_resnet50'),
-        'DenseNet121': st.checkbox('DenseNet121', value=True, key='model_densenet121')
-    }
+    if 'model_selection' not in st.session_state:
+        st.session_state['model_selection'] = {}
+    st.session_state['model_selection']['ResNet18'] = st.checkbox('ResNet18', value=True, key='model_resnet18')
+    st.session_state['model_selection']['ResNet50'] = st.checkbox('ResNet50', value=True, key='model_resnet50')
+    st.session_state['model_selection']['DenseNet121'] = st.checkbox('DenseNet121', value=True, key='model_densenet121')
 
-    # Lista de modelos selecionados na ordem fixa
-    model_list = [model_name for model_name in ['ResNet18', 'ResNet50', 'DenseNet121'] if model_selection[model_name]]
-
-    if len(model_list) == 0:
-        st.error("Por favor, selecione pelo menos um modelo para treinar.")
-
-    # Inicializar 'all_model_metrics' no session_state se ainda não existir
-    if 'all_model_metrics' not in st.session_state:
-        st.session_state['all_model_metrics'] = []
-
-    # Inicializar lista para armazenar modelos treinados
-    trained_models = []
-
-    # Uploader de arquivo ZIP fora do botão para garantir que o arquivo seja carregado antes do treinamento
+    # Uploader de arquivo ZIP
     zip_file = st.file_uploader("Upload do arquivo ZIP com as imagens", type=["zip"], key="zip_file_uploader_main_multiple")
 
+    # Botão para iniciar o treinamento múltiplo
     if st.button("Iniciar Treinamento Múltiplo"):
+        model_selection = st.session_state['model_selection']
+        # Lista de modelos selecionados na ordem fixa
+        model_list = [model_name for model_name in ['ResNet18', 'ResNet50', 'DenseNet121'] if model_selection.get(model_name, False)]
+
+        if len(model_list) == 0:
+            st.error("Por favor, selecione pelo menos um modelo para treinar.")
+            return
+
+        # Inicializar 'all_model_metrics' no session_state se ainda não existir
+        if 'all_model_metrics' not in st.session_state:
+            st.session_state['all_model_metrics'] = []
+
+        # Inicializar lista para armazenar modelos treinados
+        trained_models = []
+
         if zip_file is None:
             st.error("Por favor, faça upload do arquivo ZIP com as imagens.")
         else:

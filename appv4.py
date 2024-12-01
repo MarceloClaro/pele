@@ -34,6 +34,7 @@ import io
 import warnings
 from datetime import datetime
 from scipy import stats
+import json
 
 # Supressão dos avisos relacionados ao torch.classes
 warnings.filterwarnings("ignore", category=UserWarning, message=".*torch.classes.*")
@@ -122,7 +123,10 @@ def visualize_data(dataset, classes):
         axes[i].imshow(image)
         axes[i].set_title(classes[label])
         axes[i].axis('off')
-    st.pyplot(fig)
+    # Salvar a figura
+    fig_filename = 'dataset_samples.png'
+    fig.savefig(fig_filename)
+    st.write(f"Amostras salvas como {fig_filename}")
     plt.close(fig)  # Fechar a figura para liberar memória
 
 
@@ -156,7 +160,10 @@ def plot_class_distribution(dataset, classes):
     ax.set_xlabel("Classes")
     ax.set_ylabel("Número de Imagens")
 
-    st.pyplot(fig)
+    # Salvar a figura
+    fig_filename = 'class_distribution.png'
+    fig.savefig(fig_filename)
+    st.write(f"Distribuição de classes salva como {fig_filename}")
     plt.close(fig)  # Fechar a figura para liberar memória
 
 
@@ -271,18 +278,23 @@ def display_all_augmented_images(df, class_names, max_images=None):
     cols_per_row = 5  # Número de colunas por linha
     rows = (num_images + cols_per_row - 1) // cols_per_row  # Calcula o número de linhas necessárias
     
-    for row in range(rows):
-        cols = st.columns(cols_per_row)
-        for col in range(cols_per_row):
-            idx = row * cols_per_row + col
-            if idx < num_images:
-                image = df.iloc[idx]['augmented_image']
-                label = df.iloc[idx]['label']
-                with cols[col]:
-                    st.image(image, caption=class_names[label], use_column_width=True)
+    # Criar uma pasta para salvar as imagens
+    os.makedirs('augmented_images', exist_ok=True)
+
+    image_paths = []
+
+    for idx in range(num_images):
+        image = df.iloc[idx]['augmented_image']
+        label = df.iloc[idx]['label']
+        image_pil = Image.fromarray((image * 255).astype(np.uint8))
+        image_filename = f'augmented_images/image_{idx+1}_{class_names[label]}.png'
+        image_pil.save(image_filename)
+        image_paths.append(image_filename)
+
+    st.write(f"Imagens augmentadas salvas na pasta 'augmented_images'")
 
 
-def visualize_embeddings(df, class_names):
+def visualize_embeddings(df, class_names, model_name, run_id):
     """
     Reduz a dimensionalidade dos embeddings e os visualiza em 2D.
 
@@ -314,9 +326,18 @@ def visualize_embeddings(df, class_names):
     plt.xlabel('Componente Principal 1')
     plt.ylabel('Componente Principal 2')
 
-    # Exibir no Streamlit
-    st.pyplot(plt)
+    # Salvar a figura
+    fig_filename = f'embeddings_{model_name}_run{run_id}.png'
+    plt.savefig(fig_filename)
+    st.write(f"Embeddings salvos como {fig_filename}")
     plt.close()  # Fechar a figura para liberar memória
+
+
+def save_config(config, model_name, run_id):
+    config_filename = f'config_{model_name}_run{run_id}.json'
+    with open(config_filename, 'w') as f:
+        json.dump(config, f, indent=4)
+    st.write(f"Configurações salvas como {config_filename}")
 
 
 def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_rate, batch_size, train_split, valid_split, use_weighted_loss, l2_lambda, patience, model_id=None, run_id=None):
@@ -329,11 +350,24 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
         # Exibir as configurações técnicas do modelo
         st.subheader(f"Treinamento do {model_name} - Execução {run_id}")
         st.write("**Configurações Técnicas:**")
+        config = {
+            'Modelo': model_name,
+            'Fine-Tuning Completo': fine_tune,
+            'Épocas': epochs,
+            'Taxa de Aprendizagem': learning_rate,
+            'Tamanho do Lote': batch_size,
+            'L2 Regularization': l2_lambda,
+            'Paciência Early Stopping': patience,
+            'Data/Hora': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
         config_df = pd.DataFrame({
-            'Parâmetro': ['Modelo', 'Fine-Tuning Completo', 'Épocas', 'Taxa de Aprendizagem', 'Tamanho do Lote', 'L2 Regularization', 'Paciência Early Stopping'],
-            'Valor': [model_name, fine_tune, epochs, learning_rate, batch_size, l2_lambda, patience]
+            'Parâmetro': list(config.keys()),
+            'Valor': list(config.values())
         })
         st.table(config_df)
+
+        # Salvar as configurações
+        save_config(config, model_name, run_id)
 
         # Ajustar o batch size para modelos maiores
         if model_name in ['ResNet50', 'DenseNet121']:
@@ -394,30 +428,33 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
         valid_df['class_name'] = valid_df['label'].map(idx_to_class)
         test_df['class_name'] = test_df['label'].map(idx_to_class)
 
-        # Exibir dataframes no Streamlit sem a coluna 'augmented_image' e sem limitar a 5 linhas
-        st.write("**Dataframe do Conjunto de Treinamento com Data Augmentation e Embeddings:**")
-        st.dataframe(train_df.drop(columns=['augmented_image']))
-
-        st.write("**Dataframe do Conjunto de Validação:**")
-        st.dataframe(valid_df.drop(columns=['augmented_image']))
-
-        st.write("**Dataframe do Conjunto de Teste:**")
-        st.dataframe(test_df.drop(columns=['augmented_image']))
+        # Salvar dataframes em CSV
+        train_df_filename = f'train_df_{model_name}_run{run_id}.csv'
+        valid_df_filename = f'valid_df_{model_name}_run{run_id}.csv'
+        test_df_filename = f'test_df_{model_name}_run{run_id}.csv'
+        train_df.to_csv(train_df_filename, index=False)
+        valid_df.to_csv(valid_df_filename, index=False)
+        test_df.to_csv(test_df_filename, index=False)
+        st.write(f"Dataframes salvos como {train_df_filename}, {valid_df_filename}, e {test_df_filename}")
 
         # Exibir todas as imagens augmentadas (ou limitar conforme necessário)
         display_all_augmented_images(train_df, full_dataset.classes, max_images=100)  # Ajuste 'max_images' conforme necessário
 
         # Visualizar os embeddings
-        visualize_embeddings(train_df, full_dataset.classes)
+        visualize_embeddings(train_df, full_dataset.classes, model_name, run_id)
 
         # Exibir contagem de imagens por classe nos conjuntos de treinamento e teste
         st.write("**Distribuição das Classes no Conjunto de Treinamento:**")
         train_class_counts = train_df['class_name'].value_counts()
-        st.bar_chart(train_class_counts)
+        train_class_counts_filename = f'train_class_counts_{model_name}_run{run_id}.csv'
+        train_class_counts.to_csv(train_class_counts_filename)
+        st.write(f"Distribuição de classes de treinamento salva como {train_class_counts_filename}")
 
         st.write("**Distribuição das Classes no Conjunto de Teste:**")
         test_class_counts = test_df['class_name'].value_counts()
-        st.bar_chart(test_class_counts)
+        test_class_counts_filename = f'test_class_counts_{model_name}_run{run_id}.csv'
+        test_class_counts.to_csv(test_class_counts_filename)
+        st.write(f"Distribuição de classes de teste salva como {test_class_counts_filename}")
 
         # Atualizar os datasets com as transformações para serem usados nos DataLoaders
         train_dataset = CustomDataset(torch.utils.data.Subset(full_dataset, train_indices), transform=train_transforms)
@@ -470,11 +507,6 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
         best_valid_loss = float('inf')
         epochs_no_improve = 0
         best_model_wts = None  # Inicializar
-
-        # Placeholders para gráficos dinâmicos
-        placeholder = st.empty()
-        progress_bar = st.progress(0)
-        epoch_text = st.empty()
 
         # Treinamento
         for epoch in range(epochs):
@@ -529,34 +561,6 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
             st.session_state[valid_losses_key].append(valid_epoch_loss)
             st.session_state[valid_accuracies_key].append(valid_epoch_acc.item())
 
-            # Atualizar gráficos dinamicamente
-            with placeholder.container():
-                fig, ax = plt.subplots(1, 2, figsize=(14, 5))
-
-                # Gráfico de Perda
-                ax[0].plot(range(1, len(st.session_state[train_losses_key]) + 1), st.session_state[train_losses_key], label='Treino')
-                ax[0].plot(range(1, len(st.session_state[valid_losses_key]) + 1), st.session_state[valid_losses_key], label='Validação')
-                ax[0].set_title(f'Perda por Época - {model_name} (Execução {run_id})')
-                ax[0].set_xlabel('Épocas')
-                ax[0].set_ylabel('Perda')
-                ax[0].legend()
-
-                # Gráfico de Acurácia
-                ax[1].plot(range(1, len(st.session_state[train_accuracies_key]) + 1), st.session_state[train_accuracies_key], label='Treino')
-                ax[1].plot(range(1, len(st.session_state[valid_accuracies_key]) + 1), st.session_state[valid_accuracies_key], label='Validação')
-                ax[1].set_title(f'Acurácia por Época - {model_name} (Execução {run_id})')
-                ax[1].set_xlabel('Épocas')
-                ax[1].set_ylabel('Acurácia')
-                ax[1].legend()
-
-                st.pyplot(fig)
-                plt.close(fig)  # Fechar a figura para liberar memória
-
-            # Atualizar texto de progresso
-            progress = (epoch + 1) / epochs
-            progress_bar.progress(progress)
-            epoch_text.text(f'Época {epoch+1}/{epochs}')
-
             # Early Stopping
             if valid_epoch_loss < best_valid_loss:
                 best_valid_loss = valid_epoch_loss
@@ -590,11 +594,11 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
 
         # Análise de Erros
         st.write("**Análise de Erros**")
-        error_analysis(model, test_loader, full_dataset.classes)
+        error_analysis(model, test_loader, full_dataset.classes, model_name, run_id)
 
         # Clusterização e Análise Comparativa
         st.write("**Análise de Clusterização**")
-        perform_clustering(model, test_loader, full_dataset.classes)
+        perform_clustering(model, test_loader, full_dataset.classes, model_name, run_id)
 
         # Liberar memória dos data loaders
         del train_loader, valid_loader, test_loader
@@ -615,7 +619,7 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
 
 def plot_metrics(train_losses, valid_losses, train_accuracies, valid_accuracies, model_name, run_id):
     """
-    Plota os gráficos de perda e acurácia.
+    Plota os gráficos de perda e acurácia e salva em arquivos.
     """
     epochs_range = range(1, len(train_losses) + 1)
     fig, ax = plt.subplots(1, 2, figsize=(14, 5))
@@ -636,13 +640,16 @@ def plot_metrics(train_losses, valid_losses, train_accuracies, valid_accuracies,
     ax[1].set_ylabel('Acurácia')
     ax[1].legend()
 
-    st.pyplot(fig)
+    # Salvar a figura
+    plot_filename = f'loss_accuracy_{model_name}_run{run_id}.png'
+    fig.savefig(plot_filename)
+    st.write(f"Gráficos de perda e acurácia salvos como {plot_filename}")
     plt.close(fig)  # Fechar a figura para liberar memória
 
 
 def compute_metrics(model, dataloader, classes, model_name, run_id):
     """
-    Calcula métricas detalhadas e exibe matriz de confusão e relatório de classificação.
+    Calcula métricas detalhadas e salva matriz de confusão e relatório de classificação.
     """
     model.eval()
     all_preds = []
@@ -664,8 +671,10 @@ def compute_metrics(model, dataloader, classes, model_name, run_id):
 
     # Relatório de Classificação
     report = classification_report(all_labels, all_preds, target_names=classes, output_dict=True)
-    st.text("Relatório de Classificação:")
-    st.write(pd.DataFrame(report).transpose())
+    report_df = pd.DataFrame(report).transpose()
+    report_filename = f'classification_report_{model_name}_run{run_id}.csv'
+    report_df.to_csv(report_filename)
+    st.write(f"Relatório de classificação salvo como {report_filename}")
 
     # Matriz de Confusão Normalizada
     cm = confusion_matrix(all_labels, all_preds, normalize='true')
@@ -674,7 +683,9 @@ def compute_metrics(model, dataloader, classes, model_name, run_id):
     ax.set_xlabel('Predito')
     ax.set_ylabel('Verdadeiro')
     ax.set_title('Matriz de Confusão Normalizada')
-    st.pyplot(fig)
+    cm_filename = f'confusion_matrix_{model_name}_run{run_id}.png'
+    fig.savefig(cm_filename)
+    st.write(f"Matriz de confusão salva como {cm_filename}")
     plt.close(fig)  # Fechar a figura para liberar memória
 
     # Curva ROC
@@ -689,7 +700,9 @@ def compute_metrics(model, dataloader, classes, model_name, run_id):
         ax.set_ylabel('Taxa de Verdadeiros Positivos')
         ax.set_title('Curva ROC')
         ax.legend(loc='lower right')
-        st.pyplot(fig)
+        roc_filename = f'roc_curve_{model_name}_run{run_id}.png'
+        fig.savefig(roc_filename)
+        st.write(f"Curva ROC salva como {roc_filename}")
         plt.close(fig)  # Fechar a figura para liberar memória
     else:
         # Multiclasse
@@ -715,10 +728,16 @@ def compute_metrics(model, dataloader, classes, model_name, run_id):
         'ROC_AUC': roc_auc if roc_auc is not None else np.nan
     }
 
+    # Salvar métricas em um arquivo CSV
+    metrics_df = pd.DataFrame([metrics])
+    metrics_filename = f'metrics_{model_name}_run{run_id}.csv'
+    metrics_df.to_csv(metrics_filename, index=False)
+    st.write(f"Métricas salvas como {metrics_filename}")
+
     return metrics
 
 
-def error_analysis(model, dataloader, classes):
+def error_analysis(model, dataloader, classes, model_name, run_id):
     """
     Realiza análise de erros mostrando algumas imagens mal classificadas.
     """
@@ -751,13 +770,16 @@ def error_analysis(model, dataloader, classes):
             axes[i].imshow(image)
             axes[i].set_title(f"V: {classes[misclassified_labels[i]]}\nP: {classes[misclassified_preds[i]]}")
             axes[i].axis('off')
-        st.pyplot(fig)
+        # Salvar a figura
+        error_fig_filename = f'error_analysis_{model_name}_run{run_id}.png'
+        fig.savefig(error_fig_filename)
+        st.write(f"Análise de erros salva como {error_fig_filename}")
         plt.close(fig)  # Fechar a figura para liberar memória
     else:
         st.write("Nenhuma imagem mal classificada encontrada.")
 
 
-def perform_clustering(model, dataloader, classes):
+def perform_clustering(model, dataloader, classes, model_name, run_id):
     """
     Realiza a extração de features e aplica algoritmos de clusterização.
     """
@@ -811,7 +833,10 @@ def perform_clustering(model, dataloader, classes):
     ax[1].add_artist(legend1)
     ax[1].set_title('Clusterização Hierárquica')
 
-    st.pyplot(fig)
+    # Salvar a figura
+    clustering_fig_filename = f'clustering_{model_name}_run{run_id}.png'
+    fig.savefig(clustering_fig_filename)
+    st.write(f"Resultados de clusterização salvos como {clustering_fig_filename}")
     plt.close(fig)  # Fechar a figura para liberar memória
 
     # Métricas de Avaliação
@@ -820,8 +845,20 @@ def perform_clustering(model, dataloader, classes):
     ari_agglo = adjusted_rand_score(labels, clusters_agglo)
     nmi_agglo = normalized_mutual_info_score(labels, clusters_agglo)
 
-    st.write(f"**KMeans** - ARI: {ari_kmeans:.4f}, NMI: {nmi_kmeans:.4f}")
-    st.write(f"**Agglomerative Clustering** - ARI: {ari_agglo:.4f}, NMI: {nmi_agglo:.4f}")
+    clustering_metrics = {
+        'Model': model_name,
+        'Run_ID': run_id,
+        'ARI_KMeans': ari_kmeans,
+        'NMI_KMeans': nmi_kmeans,
+        'ARI_Agglomerative': ari_agglo,
+        'NMI_Agglomerative': nmi_agglo
+    }
+
+    # Salvar métricas de clusterização
+    clustering_metrics_df = pd.DataFrame([clustering_metrics])
+    clustering_metrics_filename = f'clustering_metrics_{model_name}_run{run_id}.csv'
+    clustering_metrics_df.to_csv(clustering_metrics_filename, index=False)
+    st.write(f"Métricas de clusterização salvas como {clustering_metrics_filename}")
 
 
 def evaluate_image(model, image, classes):
@@ -887,8 +924,10 @@ def visualize_activations(model, image, class_names, model_name):
     ax[1].set_title('Grad-CAM')
     ax[1].axis('off')
 
-    # Exibir as imagens com o Streamlit
-    st.pyplot(fig)
+    # Salvar a figura
+    activation_fig_filename = f'grad_cam_{model_name}.png'
+    fig.savefig(activation_fig_filename)
+    st.write(f"Ativações salvas como {activation_fig_filename}")
     plt.close(fig)  # Fechar a figura para liberar memória
 
     # Limpar os hooks após a visualização
@@ -1112,7 +1151,9 @@ def main():
                 if len(st.session_state['all_model_metrics']) > 0:
                     st.header("Métricas de Desempenho de Todos os Modelos")
                     metrics_df = pd.DataFrame(st.session_state['all_model_metrics'])
-                    st.dataframe(metrics_df)
+                    metrics_df_filename = 'all_model_metrics.csv'
+                    metrics_df.to_csv(metrics_df_filename, index=False)
+                    st.write(f"Métricas de todos os modelos salvas como {metrics_df_filename}")
 
                     # Calcular Intervalos de Confiança para Cada Métrica
                     st.subheader("Intervalos de Confiança para as Métricas de Desempenho")

@@ -11,7 +11,7 @@ import seaborn as sns
 from PIL import Image, UnidentifiedImageError
 import torch
 from torch import nn, optim
-from torch.utils.data import DataLoader, random_split
+from torch.utils.data import DataLoader
 from torchvision import transforms, datasets
 from torchvision.models import resnet18, resnet50, densenet121
 from torchvision.models import ResNet18_Weights, ResNet50_Weights, DenseNet121_Weights
@@ -21,9 +21,7 @@ from sklearn.metrics import (adjusted_rand_score, normalized_mutual_info_score,
                              roc_auc_score, roc_curve)
 from sklearn.preprocessing import label_binarize
 from sklearn.decomposition import PCA
-from sklearn import metrics
 from sklearn.utils import resample
-from statsmodels.stats.multicomp import pairwise_tukeyhsd
 import streamlit as st
 import gc
 import logging
@@ -404,8 +402,6 @@ def train_model(train_loader, valid_loader, test_loader, num_classes, model_name
     if model_name in ['ResNet50', 'DenseNet121']:
         batch_size = min(batch_size, 8)  # Ajuste conforme necessário
         st.write(f"Ajustando o tamanho do lote para {batch_size} devido ao uso do {model_name}")
-
-    # Dataloaders já foram fornecidos como parâmetros
 
     # Criar o modelo
     model = get_model(model_name, num_classes, dropout_p=0.5, fine_tune=fine_tune)
@@ -1234,15 +1230,15 @@ def main():
                     st.error("Divisão dos dados resultou em um conjunto vazio. Ajuste os percentuais de divisão.")
                     return
 
-                # Criar datasets para treino, validação e teste
-                train_dataset = torch.utils.data.Subset(full_dataset, train_indices)
-                valid_dataset = torch.utils.data.Subset(full_dataset, valid_indices)
-                test_dataset = torch.utils.data.Subset(full_dataset, test_indices)
+                # Criar datasets para treino, validação e teste SEM transformações
+                train_dataset_original = torch.utils.data.Subset(full_dataset, train_indices)
+                valid_dataset_original = torch.utils.data.Subset(full_dataset, valid_indices)
+                test_dataset_original = torch.utils.data.Subset(full_dataset, test_indices)
 
                 # Atualizar os datasets com as transformações para serem usados nos DataLoaders
-                train_dataset = CustomDataset(train_dataset, transform=train_transforms)
-                valid_dataset = CustomDataset(valid_dataset, transform=test_transforms)
-                test_dataset = CustomDataset(test_dataset, transform=test_transforms)
+                train_dataset = CustomDataset(train_dataset_original, transform=train_transforms)
+                valid_dataset = CustomDataset(valid_dataset_original, transform=test_transforms)
+                test_dataset = CustomDataset(test_dataset_original, transform=test_transforms)
 
                 # Dataloaders
                 g = torch.Generator()
@@ -1259,7 +1255,7 @@ def main():
                     return
 
                 st.write("**Extraindo embeddings e aplicando Data Augmentation no conjunto de treinamento...**")
-                df_embeddings = apply_transforms_and_get_embeddings(train_dataset, base_model, train_transforms, batch_size=batch_size)
+                df_embeddings = apply_transforms_and_get_embeddings(train_dataset_original, base_model, train_transforms, batch_size=batch_size)
 
                 # Visualizar as primeiras 20 imagens após Data Augmentation
                 display_all_augmented_images(df_embeddings, full_dataset.classes, max_images=20)

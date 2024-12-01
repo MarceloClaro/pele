@@ -328,305 +328,304 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
     """
     set_seed(42)
 
-    try:
-        # Exibir as configurações técnicas do modelo
-        st.subheader(f"Treinamento do {model_name} - Execução {run_id}")
-        st.write("**Configurações Técnicas:**")
-        config = {
-            'Modelo': model_name,
-            'Fine-Tuning Completo': fine_tune,
-            'Épocas': epochs,
-            'Taxa de Aprendizagem': learning_rate,
-            'Tamanho do Lote': batch_size,
-            'Train Split': train_split,
-            'Valid Split': valid_split,
-            'L2 Regularization': l2_lambda,
-            'Paciência Early Stopping': patience,
-            'Use Weighted Loss': use_weighted_loss
-        }
-        config_df = pd.DataFrame(list(config.items()), columns=['Parâmetro', 'Valor'])
-        st.table(config_df)
+    # Exibir as configurações técnicas do modelo
+    st.subheader(f"Treinamento do {model_name} - Execução {run_id}")
+    st.write("**Configurações Técnicas:**")
+    config = {
+        'Modelo': model_name,
+        'Fine-Tuning Completo': fine_tune,
+        'Épocas': epochs,
+        'Taxa de Aprendizagem': learning_rate,
+        'Tamanho do Lote': batch_size,
+        'Train Split': train_split,
+        'Valid Split': valid_split,
+        'L2 Regularization': l2_lambda,
+        'Paciência Early Stopping': patience,
+        'Use Weighted Loss': use_weighted_loss
+    }
+    config_df = pd.DataFrame(list(config.items()), columns=['Parâmetro', 'Valor'])
+    st.table(config_df)
 
-        # Salvar configurações em arquivo JSON
-        config_filename = f'config_{model_name}_run{run_id}.json'
-        with open(config_filename, 'w') as f:
-            json.dump(config, f, indent=4)
-        st.write(f"Configurações salvas como `{config_filename}`")
+    # Salvar configurações em arquivo JSON
+    config_filename = f'config_{model_name}_run{run_id}.json'
+    with open(config_filename, 'w') as f:
+        json.dump(config, f, indent=4)
+    st.write(f"Configurações salvas como `{config_filename}`")
 
-        # Ajustar o batch size para modelos maiores
-        if model_name in ['ResNet50', 'DenseNet121']:
-            batch_size = min(batch_size, 8)  # Ajuste conforme necessário
-            st.write(f"Ajustando o tamanho do lote para {batch_size} devido ao uso do {model_name}")
+    # Ajustar o batch size para modelos maiores
+    if model_name in ['ResNet50', 'DenseNet121']:
+        batch_size = min(batch_size, 8)  # Ajuste conforme necessário
+        st.write(f"Ajustando o tamanho do lote para {batch_size} devido ao uso do {model_name}")
 
-        # Carregar o dataset original sem transformações
-        full_dataset = datasets.ImageFolder(root=data_dir)
+    # Carregar o dataset original sem transformações
+    full_dataset = datasets.ImageFolder(root=data_dir)
 
-        # Verificar se há classes suficientes
-        if len(full_dataset.classes) < num_classes:
-            st.error(f"O número de classes encontradas ({len(full_dataset.classes)}) é menor do que o número especificado ({num_classes}).")
-            return None
+    # Verificar se há classes suficientes
+    if len(full_dataset.classes) < num_classes:
+        st.error(f"O número de classes encontradas ({len(full_dataset.classes)}) é menor do que o número especificado ({num_classes}).")
+        return None
 
-        # Exibir dados
-        visualize_data(full_dataset, full_dataset.classes)
-        plot_class_distribution(full_dataset, full_dataset.classes)
+    # Exibir dados
+    visualize_data(full_dataset, full_dataset.classes)
+    plot_class_distribution(full_dataset, full_dataset.classes)
 
-        # Divisão dos dados
-        dataset_size = len(full_dataset)
-        indices = list(range(dataset_size))
-        np.random.shuffle(indices)
+    # Divisão dos dados
+    dataset_size = len(full_dataset)
+    indices = list(range(dataset_size))
+    np.random.shuffle(indices)
 
-        train_end = int(train_split * dataset_size)
-        valid_end = int((train_split + valid_split) * dataset_size)
+    train_end = int(train_split * dataset_size)
+    valid_end = int((train_split + valid_split) * dataset_size)
 
-        train_indices = indices[:train_end]
-        valid_indices = indices[train_end:valid_end]
-        test_indices = indices[valid_end:]
+    train_indices = indices[:train_end]
+    valid_indices = indices[train_end:valid_end]
+    test_indices = indices[valid_end:]
 
-        # Verificar se há dados suficientes em cada conjunto
-        if len(train_indices) == 0 or len(valid_indices) == 0 or len(test_indices) == 0:
-            st.error("Divisão dos dados resultou em um conjunto vazio. Ajuste os percentuais de divisão.")
-            return None
+    # Verificar se há dados suficientes em cada conjunto
+    if len(train_indices) == 0 or len(valid_indices) == 0 or len(test_indices) == 0:
+        st.error("Divisão dos dados resultou em um conjunto vazio. Ajuste os percentuais de divisão.")
+        return None
 
-        # Criar datasets para treino, validação e teste
-        train_dataset = torch.utils.data.Subset(full_dataset, train_indices)
-        valid_dataset = torch.utils.data.Subset(full_dataset, valid_indices)
-        test_dataset = torch.utils.data.Subset(full_dataset, test_indices)
+    # Criar datasets para treino, validação e teste
+    train_dataset = torch.utils.data.Subset(full_dataset, train_indices)
+    valid_dataset = torch.utils.data.Subset(full_dataset, valid_indices)
+    test_dataset = torch.utils.data.Subset(full_dataset, test_indices)
 
-        # Criar dataframes para os conjuntos de treinamento, validação e teste com data augmentation e embeddings
-        model_for_embeddings = get_model(model_name, num_classes, dropout_p=0.5, fine_tune=False)
-        if model_for_embeddings is None:
-            return None
+    # Criar dataframes para os conjuntos de treinamento, validação e teste com data augmentation e embeddings
+    model_for_embeddings = get_model(model_name, num_classes, dropout_p=0.5, fine_tune=False)
+    if model_for_embeddings is None:
+        return None
 
-        st.write("**Processando o conjunto de treinamento para incluir Data Augmentation e Embeddings...**")
-        train_df = apply_transforms_and_get_embeddings(train_dataset, model_for_embeddings, train_transforms, batch_size=batch_size)
-        st.write("**Processando o conjunto de validação...**")
-        valid_df = apply_transforms_and_get_embeddings(valid_dataset, model_for_embeddings, test_transforms, batch_size=batch_size)
-        st.write("**Processando o conjunto de teste...**")
-        test_df = apply_transforms_and_get_embeddings(test_dataset, model_for_embeddings, test_transforms, batch_size=batch_size)
+    st.write("**Processando o conjunto de treinamento para incluir Data Augmentation e Embeddings...**")
+    train_df = apply_transforms_and_get_embeddings(train_dataset, model_for_embeddings, train_transforms, batch_size=batch_size)
+    st.write("**Processando o conjunto de validação...**")
+    valid_df = apply_transforms_and_get_embeddings(valid_dataset, model_for_embeddings, test_transforms, batch_size=batch_size)
+    st.write("**Processando o conjunto de teste...**")
+    test_df = apply_transforms_and_get_embeddings(test_dataset, model_for_embeddings, test_transforms, batch_size=batch_size)
 
-        # Mapear rótulos para nomes de classes
-        class_to_idx = full_dataset.class_to_idx
-        idx_to_class = {v: k for k, v in class_to_idx.items()}
+    # Mapear rótulos para nomes de classes
+    class_to_idx = full_dataset.class_to_idx
+    idx_to_class = {v: k for k, v in class_to_idx.items()}
 
-        train_df['class_name'] = train_df['label'].map(idx_to_class)
-        valid_df['class_name'] = valid_df['label'].map(idx_to_class)
-        test_df['class_name'] = test_df['label'].map(idx_to_class)
+    train_df['class_name'] = train_df['label'].map(idx_to_class)
+    valid_df['class_name'] = valid_df['label'].map(idx_to_class)
+    test_df['class_name'] = test_df['label'].map(idx_to_class)
 
-        # Exibir dataframes no Streamlit sem a coluna 'augmented_image' e sem limitar a 5 linhas
-        st.write("**Dataframe do Conjunto de Treinamento com Data Augmentation e Embeddings:**")
-        st.dataframe(train_df.drop(columns=['augmented_image']))
+    # Exibir dataframes no Streamlit sem a coluna 'augmented_image' e sem limitar a 5 linhas
+    st.write("**Dataframe do Conjunto de Treinamento com Data Augmentation e Embeddings:**")
+    st.dataframe(train_df.drop(columns=['augmented_image']))
 
-        st.write("**Dataframe do Conjunto de Validação:**")
-        st.dataframe(valid_df.drop(columns=['augmented_image']))
+    st.write("**Dataframe do Conjunto de Validação:**")
+    st.dataframe(valid_df.drop(columns=['augmented_image']))
 
-        st.write("**Dataframe do Conjunto de Teste:**")
-        st.dataframe(test_df.drop(columns=['augmented_image']))
+    st.write("**Dataframe do Conjunto de Teste:**")
+    st.dataframe(test_df.drop(columns=['augmented_image']))
 
-        # Exibir todas as imagens augmentadas (ou limitar conforme necessário)
-        display_all_augmented_images(train_df, full_dataset.classes, max_images=100)  # Ajuste 'max_images' conforme necessário
+    # Exibir todas as imagens augmentadas (ou limitar conforme necessário)
+    display_all_augmented_images(train_df, full_dataset.classes, max_images=100)  # Ajuste 'max_images' conforme necessário
 
-        # Visualizar os embeddings
-        visualize_embeddings(train_df, full_dataset.classes)
+    # Visualizar os embeddings
+    visualize_embeddings(train_df, full_dataset.classes)
 
-        # Exibir contagem de imagens por classe nos conjuntos de treinamento e teste
-        st.write("**Distribuição das Classes no Conjunto de Treinamento:**")
-        train_class_counts = train_df['class_name'].value_counts()
-        st.bar_chart(train_class_counts)
+    # Exibir contagem de imagens por classe nos conjuntos de treinamento e teste
+    st.write("**Distribuição das Classes no Conjunto de Treinamento:**")
+    train_class_counts = train_df['class_name'].value_counts()
+    st.bar_chart(train_class_counts)
 
-        st.write("**Distribuição das Classes no Conjunto de Teste:**")
-        test_class_counts = test_df['class_name'].value_counts()
-        st.bar_chart(test_class_counts)
+    st.write("**Distribuição das Classes no Conjunto de Teste:**")
+    test_class_counts = test_df['class_name'].value_counts()
+    st.bar_chart(test_class_counts)
 
-        # Atualizar os datasets com as transformações para serem usados nos DataLoaders
-        train_dataset = CustomDataset(torch.utils.data.Subset(full_dataset, train_indices), transform=train_transforms)
-        valid_dataset = CustomDataset(torch.utils.data.Subset(full_dataset, valid_indices), transform=test_transforms)
-        test_dataset = CustomDataset(torch.utils.data.Subset(full_dataset, test_indices), transform=test_transforms)
+    # Atualizar os datasets com as transformações para serem usados nos DataLoaders
+    train_dataset = CustomDataset(torch.utils.data.Subset(full_dataset, train_indices), transform=train_transforms)
+    valid_dataset = CustomDataset(torch.utils.data.Subset(full_dataset, valid_indices), transform=test_transforms)
+    test_dataset = CustomDataset(torch.utils.data.Subset(full_dataset, test_indices), transform=test_transforms)
 
-        # Dataloaders
-        g = torch.Generator()
-        g.manual_seed(42)
+    # Dataloaders
+    g = torch.Generator()
+    g.manual_seed(42)
 
-        if use_weighted_loss:
-            targets = [full_dataset.targets[i] for i in train_indices]
-            class_counts = np.bincount(targets)
-            class_counts = class_counts + 1e-6  # Para evitar divisão por zero
-            class_weights = 1.0 / class_counts
-            class_weights = torch.FloatTensor(class_weights).to(device)
-            criterion = nn.CrossEntropyLoss(weight=class_weights)
-        else:
-            criterion = nn.CrossEntropyLoss()
+    if use_weighted_loss:
+        targets = [full_dataset.targets[i] for i in train_indices]
+        class_counts = np.bincount(targets)
+        class_counts = class_counts + 1e-6  # Para evitar divisão por zero
+        class_weights = 1.0 / class_counts
+        class_weights = torch.FloatTensor(class_weights).to(device)
+        criterion = nn.CrossEntropyLoss(weight=class_weights)
+    else:
+        criterion = nn.CrossEntropyLoss()
 
-        train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, worker_init_fn=seed_worker, generator=g)
-        valid_loader = DataLoader(valid_dataset, batch_size=batch_size, shuffle=False, worker_init_fn=seed_worker, generator=g)
-        test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, worker_init_fn=seed_worker, generator=g)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, worker_init_fn=seed_worker, generator=g)
+    valid_loader = DataLoader(valid_dataset, batch_size=batch_size, shuffle=False, worker_init_fn=seed_worker, generator=g)
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, worker_init_fn=seed_worker, generator=g)
 
-        # Carregar o modelo
-        model = get_model(model_name, num_classes, dropout_p=0.5, fine_tune=fine_tune)
-        if model is None:
-            return None
+    # Carregar o modelo
+    model = get_model(model_name, num_classes, dropout_p=0.5, fine_tune=fine_tune)
+    if model is None:
+        return None
 
-        # Definir o otimizador com L2 regularization (weight_decay)
-        optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=learning_rate, weight_decay=l2_lambda)
+    # Definir o otimizador com L2 regularization (weight_decay)
+    optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=learning_rate, weight_decay=l2_lambda)
 
-        # Inicializar as listas de perdas e acurácias no st.session_state com chaves únicas
-        train_losses_key = f"train_losses_{model_id}_{run_id}"
-        valid_losses_key = f"valid_losses_{model_id}_{run_id}"
-        train_accuracies_key = f"train_accuracies_{model_id}_{run_id}"
-        valid_accuracies_key = f"valid_accuracies_{model_id}_{run_id}"
+    # Inicializar as listas de perdas e acurácias no st.session_state com chaves únicas
+    train_losses_key = f"train_losses_{model_id}_{run_id}"
+    valid_losses_key = f"valid_losses_{model_id}_{run_id}"
+    train_accuracies_key = f"train_accuracies_{model_id}_{run_id}"
+    valid_accuracies_key = f"valid_accuracies_{model_id}_{run_id}"
 
-        # Verificar se as chaves já existem no st.session_state; se não, inicializá-las
-        if train_losses_key not in st.session_state:
-            st.session_state[train_losses_key] = []
-        if valid_losses_key not in st.session_state:
-            st.session_state[valid_losses_key] = []
-        if train_accuracies_key not in st.session_state:
-            st.session_state[train_accuracies_key] = []
-        if valid_accuracies_key not in st.session_state:
-            st.session_state[valid_accuracies_key] = []
+    # Verificar se as chaves já existem no st.session_state; se não, inicializá-las
+    if train_losses_key not in st.session_state:
+        st.session_state[train_losses_key] = []
+    if valid_losses_key not in st.session_state:
+        st.session_state[valid_losses_key] = []
+    if train_accuracies_key not in st.session_state:
+        st.session_state[train_accuracies_key] = []
+    if valid_accuracies_key not in st.session_state:
+        st.session_state[valid_accuracies_key] = []
 
-        # Early Stopping
-        best_valid_loss = float('inf')
-        epochs_no_improve = 0
-        best_model_wts = None  # Inicializar
+    # Early Stopping
+    best_valid_loss = float('inf')
+    epochs_no_improve = 0
+    best_model_wts = None  # Inicializar
 
-        # Placeholders para gráficos dinâmicos
-        placeholder = st.empty()
-        progress_bar = st.progress(0)
-        epoch_text = st.empty()
+    # Placeholders para gráficos dinâmicos
+    placeholder = st.empty()
+    progress_bar = st.progress(0)
+    epoch_text = st.empty()
 
-        # Treinamento
-        for epoch in range(epochs):
-            set_seed(42 + epoch)
-            running_loss = 0.0
-            running_corrects = 0
-            model.train()
+    # Treinamento
+    for epoch in range(epochs):
+        set_seed(42 + epoch)
+        running_loss = 0.0
+        running_corrects = 0
+        model.train()
 
-            for inputs, labels in train_loader:
+        for inputs, labels in train_loader:
+            inputs = inputs.to(device)
+            labels = labels.to(device)
+
+            optimizer.zero_grad()
+            try:
+                outputs = model(inputs)
+            except Exception as e:
+                st.error(f"Erro durante o treinamento: {e}")
+                return None
+
+            _, preds = torch.max(outputs, 1)
+            loss = criterion(outputs, labels)
+            loss.backward()
+            optimizer.step()
+
+            running_loss += loss.item() * inputs.size(0)
+            running_corrects += torch.sum(preds == labels.data)
+
+        epoch_loss = running_loss / len(train_dataset)
+        epoch_acc = running_corrects.double() / len(train_dataset)
+        st.session_state[train_losses_key].append(epoch_loss)
+        st.session_state[train_accuracies_key].append(epoch_acc.item())
+
+        # Validação
+        model.eval()
+        valid_running_loss = 0.0
+        valid_running_corrects = 0
+
+        with torch.no_grad():
+            for inputs, labels in valid_loader:
                 inputs = inputs.to(device)
                 labels = labels.to(device)
 
-                optimizer.zero_grad()
-                try:
-                    outputs = model(inputs)
-                except Exception as e:
-                    st.error(f"Erro durante o treinamento: {e}")
-                    return None
-
+                outputs = model(inputs)
                 _, preds = torch.max(outputs, 1)
                 loss = criterion(outputs, labels)
-                loss.backward()
-                optimizer.step()
 
-                running_loss += loss.item() * inputs.size(0)
-                running_corrects += torch.sum(preds == labels.data)
+                valid_running_loss += loss.item() * inputs.size(0)
+                valid_running_corrects += torch.sum(preds == labels.data)
 
-            epoch_loss = running_loss / len(train_dataset)
-            epoch_acc = running_corrects.double() / len(train_dataset)
-            st.session_state[train_losses_key].append(epoch_loss)
-            st.session_state[train_accuracies_key].append(epoch_acc.item())
+        valid_epoch_loss = valid_running_loss / len(valid_dataset)
+        valid_epoch_acc = valid_running_corrects.double() / len(valid_dataset)
+        st.session_state[valid_losses_key].append(valid_epoch_loss)
+        st.session_state[valid_accuracies_key].append(valid_epoch_acc.item())
 
-            # Validação
-            model.eval()
-            valid_running_loss = 0.0
-            valid_running_corrects = 0
+        # Atualizar gráficos dinamicamente
+        with placeholder.container():
+            fig, ax = plt.subplots(1, 2, figsize=(14, 5))
 
-            with torch.no_grad():
-                for inputs, labels in valid_loader:
-                    inputs = inputs.to(device)
-                    labels = labels.to(device)
+            # Gráfico de Perda
+            ax[0].plot(range(1, len(st.session_state[train_losses_key]) + 1), st.session_state[train_losses_key], label='Treino')
+            ax[0].plot(range(1, len(st.session_state[valid_losses_key]) + 1), st.session_state[valid_losses_key], label='Validação')
+            ax[0].set_title(f'Perda por Época - {model_name} (Execução {run_id})')
+            ax[0].set_xlabel('Épocas')
+            ax[0].set_ylabel('Perda')
+            ax[0].legend()
 
-                    outputs = model(inputs)
-                    _, preds = torch.max(outputs, 1)
-                    loss = criterion(outputs, labels)
+            # Gráfico de Acurácia
+            ax[1].plot(range(1, len(st.session_state[train_accuracies_key]) + 1), st.session_state[train_accuracies_key], label='Treino')
+            ax[1].plot(range(1, len(st.session_state[valid_accuracies_key]) + 1), st.session_state[valid_accuracies_key], label='Validação')
+            ax[1].set_title(f'Acurácia por Época - {model_name} (Execução {run_id})')
+            ax[1].set_xlabel('Épocas')
+            ax[1].set_ylabel('Acurácia')
+            ax[1].legend()
 
-                    valid_running_loss += loss.item() * inputs.size(0)
-                    valid_running_corrects += torch.sum(preds == labels.data)
+            plt.tight_layout()
+            plt.savefig(f'loss_accuracy_{model_name}_run{run_id}.png')
+            st.image(f'loss_accuracy_{model_name}_run{run_id}.png', caption='Perda e Acurácia por Época')
+            plt.close(fig)  # Fechar a figura para liberar memória
 
-            valid_epoch_loss = valid_running_loss / len(valid_dataset)
-            valid_epoch_acc = valid_running_corrects.double() / len(valid_dataset)
-            st.session_state[valid_losses_key].append(valid_epoch_loss)
-            st.session_state[valid_accuracies_key].append(valid_epoch_acc.item())
+        # Atualizar texto de progresso
+        progress = (epoch + 1) / epochs
+        progress_bar.progress(progress)
+        epoch_text.text(f'Época {epoch+1}/{epochs}')
 
-            # Atualizar gráficos dinamicamente
-            with placeholder.container():
-                fig, ax = plt.subplots(1, 2, figsize=(14, 5))
+        # Early Stopping
+        if valid_epoch_loss < best_valid_loss:
+            best_valid_loss = valid_epoch_loss
+            epochs_no_improve = 0
+            best_model_wts = model.state_dict()
+        else:
+            epochs_no_improve += 1
+            if epochs_no_improve >= patience:
+                st.write('Early stopping!')
+                if best_model_wts is not None:
+                    model.load_state_dict(best_model_wts)
+                break
 
-                # Gráfico de Perda
-                ax[0].plot(range(1, len(st.session_state[train_losses_key]) + 1), st.session_state[train_losses_key], label='Treino')
-                ax[0].plot(range(1, len(st.session_state[valid_losses_key]) + 1), st.session_state[valid_losses_key], label='Validação')
-                ax[0].set_title(f'Perda por Época - {model_name} (Execução {run_id})')
-                ax[0].set_xlabel('Épocas')
-                ax[0].set_ylabel('Perda')
-                ax[0].legend()
+    # Carregar os melhores pesos do modelo se houver
+    if best_model_wts is not None:
+        model.load_state_dict(best_model_wts)
 
-                # Gráfico de Acurácia
-                ax[1].plot(range(1, len(st.session_state[train_accuracies_key]) + 1), st.session_state[train_accuracies_key], label='Treino')
-                ax[1].plot(range(1, len(st.session_state[valid_accuracies_key]) + 1), st.session_state[valid_accuracies_key], label='Validação')
-                ax[1].set_title(f'Acurácia por Época - {model_name} (Execução {run_id})')
-                ax[1].set_xlabel('Épocas')
-                ax[1].set_ylabel('Acurácia')
-                ax[1].legend()
+    # Gráficos de Perda e Acurácia finais
+    plot_metrics(
+        st.session_state[train_losses_key],
+        st.session_state[valid_losses_key],
+        st.session_state[train_accuracies_key],
+        st.session_state[valid_accuracies_key],
+        model_name=model_name,
+        run_id=run_id
+    )
 
-                plt.tight_layout()
-                plt.savefig(f'loss_accuracy_{model_name}_run{run_id}.png')
-                st.image(f'loss_accuracy_{model_name}_run{run_id}.png', caption='Perda e Acurácia por Época')
-                plt.close(fig)  # Fechar a figura para liberar memória
+    # Avaliação Final no Conjunto de Teste
+    st.write("**Avaliação no Conjunto de Teste**")
+    metrics = compute_metrics(model, test_loader, full_dataset.classes, model_name, run_id)
 
-            # Atualizar texto de progresso
-            progress = (epoch + 1) / epochs
-            progress_bar.progress(progress)
-            epoch_text.text(f'Época {epoch+1}/{epochs}')
+    # Análise de Erros
+    st.write("**Análise de Erros**")
+    error_analysis(model, test_loader, full_dataset.classes, model_name, run_id)
 
-            # Early Stopping
-            if valid_epoch_loss < best_valid_loss:
-                best_valid_loss = valid_epoch_loss
-                epochs_no_improve = 0
-                best_model_wts = model.state_dict()
-            else:
-                epochs_no_improve += 1
-                if epochs_no_improve >= patience:
-                    st.write('Early stopping!')
-                    if best_model_wts is not None:
-                        model.load_state_dict(best_model_wts)
-                    break
+    # Clusterização e Análise Comparativa
+    st.write("**Análise de Clusterização**")
+    perform_clustering(model, test_loader, full_dataset.classes, model_name, run_id)
 
-        # Carregar os melhores pesos do modelo se houver
-        if best_model_wts is not None:
-            model.load_state_dict(best_model_wts)
+    # Liberar memória dos data loaders
+    del train_loader, valid_loader, test_loader
+    torch.cuda.empty_cache()  # Limpar cache da GPU
+    gc.collect()
 
-        # Gráficos de Perda e Acurácia finais
-        plot_metrics(
-            st.session_state[train_losses_key],
-            st.session_state[valid_losses_key],
-            st.session_state[train_accuracies_key],
-            st.session_state[valid_accuracies_key],
-            model_name=model_name,
-            run_id=run_id
-        )
+    # Armazenar o modelo e as classes no st.session_state
+    st.session_state['model'] = model
+    st.session_state['classes'] = full_dataset.classes
+    st.session_state['trained_model_name'] = model_name  # Armazena o nome do modelo treinado
 
-        # Avaliação Final no Conjunto de Teste
-        st.write("**Avaliação no Conjunto de Teste**")
-        metrics = compute_metrics(model, test_loader, full_dataset.classes, model_name, run_id)
-
-        # Análise de Erros
-        st.write("**Análise de Erros**")
-        error_analysis(model, test_loader, full_dataset.classes)
-
-        # Clusterização e Análise Comparativa
-        st.write("**Análise de Clusterização**")
-        perform_clustering(model, test_loader, full_dataset.classes)
-
-        # Liberar memória dos data loaders
-        del train_loader, valid_loader, test_loader
-        torch.cuda.empty_cache()  # Limpar cache da GPU
-        gc.collect()
-
-        # Armazenar o modelo e as classes no st.session_state
-        st.session_state['model'] = model
-        st.session_state['classes'] = full_dataset.classes
-        st.session_state['trained_model_name'] = model_name  # Armazena o nome do modelo treinado
-
-        return model, full_dataset.classes, metrics
+    return model, full_dataset.classes, metrics
 
 
 def plot_metrics(train_losses, valid_losses, train_accuracies, valid_accuracies, model_name, run_id):
@@ -816,7 +815,7 @@ def compute_metrics(model, dataloader, classes, model_name, run_id):
     return metrics
 
 
-def error_analysis(model, dataloader, classes):
+def error_analysis(model, dataloader, classes, model_name, run_id):
     """
     Realiza análise de erros mostrando algumas imagens mal classificadas.
     """
@@ -868,7 +867,7 @@ def error_analysis(model, dataloader, classes):
         st.write("Nenhuma imagem mal classificada encontrada.")
 
 
-def perform_clustering(model, dataloader, classes):
+def perform_clustering(model, dataloader, classes, model_name, run_id):
     """
     Realiza a extração de features e aplica algoritmos de clusterização.
     """

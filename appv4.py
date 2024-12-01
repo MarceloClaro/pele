@@ -359,7 +359,7 @@ def visualize_embeddings(df, class_names):
         st.success("Visualização dos embeddings baixada com sucesso!")
 
 
-def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_rate, batch_size, train_split, valid_split, use_weighted_loss, l2_lambda, patience, model_id=None, run_id=None):
+def train_model(train_loader, valid_loader, test_loader, num_classes, model_name, fine_tune, epochs, learning_rate, batch_size, use_weighted_loss, l2_lambda, patience, model_id=None, run_id=None):
     """
     Função principal para treinamento do modelo de classificação.
     """
@@ -374,8 +374,6 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
         'Épocas': epochs,
         'Taxa de Aprendizagem': learning_rate,
         'Tamanho do Lote': batch_size,
-        'Train Split': train_split,
-        'Valid Split': valid_split,
         'L2 Regularization': l2_lambda,
         'Paciência Early Stopping': patience,
         'Use Weighted Loss': use_weighted_loss
@@ -407,149 +405,19 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
         batch_size = min(batch_size, 8)  # Ajuste conforme necessário
         st.write(f"Ajustando o tamanho do lote para {batch_size} devido ao uso do {model_name}")
 
-    # Carregar o dataset original sem transformações
-    full_dataset = datasets.ImageFolder(root=data_dir)
+    # Dataloaders já foram fornecidos como parâmetros
 
-    # Verificar se há classes suficientes
-    if len(full_dataset.classes) < num_classes:
-        st.error(f"O número de classes encontradas ({len(full_dataset.classes)}) é menor do que o número especificado ({num_classes}).")
+    # Criar o modelo
+    model = get_model(model_name, num_classes, dropout_p=0.5, fine_tune=fine_tune)
+    if model is None:
         return None
 
-    # Exibir dados
-    visualize_data(full_dataset, full_dataset.classes)
-    plot_class_distribution(full_dataset, full_dataset.classes)
-
-    # Divisão dos dados
-    dataset_size = len(full_dataset)
-    indices = list(range(dataset_size))
-    np.random.shuffle(indices)
-
-    train_end = int(train_split * dataset_size)
-    valid_end = int((train_split + valid_split) * dataset_size)
-
-    train_indices = indices[:train_end]
-    valid_indices = indices[train_end:valid_end]
-    test_indices = indices[valid_end:]
-
-    # Verificar se há dados suficientes em cada conjunto
-    if len(train_indices) == 0 or len(valid_indices) == 0 or len(test_indices) == 0:
-        st.error("Divisão dos dados resultou em um conjunto vazio. Ajuste os percentuais de divisão.")
-        return None
-
-    # Criar datasets para treino, validação e teste
-    train_dataset = torch.utils.data.Subset(full_dataset, train_indices)
-    valid_dataset = torch.utils.data.Subset(full_dataset, valid_indices)
-    test_dataset = torch.utils.data.Subset(full_dataset, test_indices)
-
-    # Criar dataframes para os conjuntos de treinamento, validação e teste com data augmentation e embeddings
-    model_for_embeddings = get_model(model_name, num_classes, dropout_p=0.5, fine_tune=False)
-    if model_for_embeddings is None:
-        return None
-
-    st.write("**Processando o conjunto de treinamento para incluir Data Augmentation e Embeddings...**")
-    train_df = apply_transforms_and_get_embeddings(train_dataset, model_for_embeddings, train_transforms, batch_size=batch_size)
-    st.write("**Processando o conjunto de validação...**")
-    valid_df = apply_transforms_and_get_embeddings(valid_dataset, model_for_embeddings, test_transforms, batch_size=batch_size)
-    st.write("**Processando o conjunto de teste...**")
-    test_df = apply_transforms_and_get_embeddings(test_dataset, model_for_embeddings, test_transforms, batch_size=batch_size)
-
-    # Mapear rótulos para nomes de classes
-    class_to_idx = full_dataset.class_to_idx
-    idx_to_class = {v: k for k, v in class_to_idx.items()}
-
-    train_df['class_name'] = train_df['label'].map(idx_to_class)
-    valid_df['class_name'] = valid_df['label'].map(idx_to_class)
-    test_df['class_name'] = test_df['label'].map(idx_to_class)
-
-    # Exibir dataframes no Streamlit sem a coluna 'augmented_image' e sem limitar a 5 linhas
-    st.write("**Dataframe do Conjunto de Treinamento com Data Augmentation e Embeddings:**")
-    st.dataframe(train_df.drop(columns=['augmented_image']))
-
-    # Salvar o DataFrame do conjunto de treinamento
-    train_df_filename = f'train_df_{model_name}_run{run_id}.csv'
-    train_df.to_csv(train_df_filename, index=False)
-    st.write(f"DataFrame do conjunto de treinamento salvo como `{train_df_filename}`")
-    # Disponibilizar para download
-    unique_id = uuid.uuid4()
-    with open(train_df_filename, "rb") as file:
-        btn = st.download_button(
-            label="Download do DataFrame de Treinamento",
-            data=file,
-            file_name=train_df_filename,
-            mime="text/csv",
-            key=f"download_train_df_{model_name}_run{run_id}_{unique_id}"
-        )
-    if btn:
-        st.success("DataFrame de treinamento baixado com sucesso!")
-
-    st.write("**Dataframe do Conjunto de Validação:**")
-    st.dataframe(valid_df.drop(columns=['augmented_image']))
-
-    # Salvar o DataFrame do conjunto de validação
-    valid_df_filename = f'valid_df_{model_name}_run{run_id}.csv'
-    valid_df.to_csv(valid_df_filename, index=False)
-    st.write(f"DataFrame do conjunto de validação salvo como `{valid_df_filename}`")
-    # Disponibilizar para download
-    unique_id = uuid.uuid4()
-    with open(valid_df_filename, "rb") as file:
-        btn = st.download_button(
-            label="Download do DataFrame de Validação",
-            data=file,
-            file_name=valid_df_filename,
-            mime="text/csv",
-            key=f"download_valid_df_{model_name}_run{run_id}_{unique_id}"
-        )
-    if btn:
-        st.success("DataFrame de validação baixado com sucesso!")
-
-    st.write("**Dataframe do Conjunto de Teste:**")
-    st.dataframe(test_df.drop(columns=['augmented_image']))
-
-    # Salvar o DataFrame do conjunto de teste
-    test_df_filename = f'test_df_{model_name}_run{run_id}.csv'
-    test_df.to_csv(test_df_filename, index=False)
-    st.write(f"DataFrame do conjunto de teste salvo como `{test_df_filename}`")
-    # Disponibilizar para download
-    unique_id = uuid.uuid4()
-    with open(test_df_filename, "rb") as file:
-        btn = st.download_button(
-            label="Download do DataFrame de Teste",
-            data=file,
-            file_name=test_df_filename,
-            mime="text/csv",
-            key=f"download_test_df_{model_name}_run{run_id}_{unique_id}"
-        )
-    if btn:
-        st.success("DataFrame de teste baixado com sucesso!")
-
-    # Exibir todas as imagens augmentadas (ou limitar conforme necessário)
-    display_all_augmented_images(train_df, full_dataset.classes, max_images=100)  # Ajuste 'max_images' conforme necessário
-
-    # Visualizar os embeddings
-    visualize_embeddings(train_df, full_dataset.classes)
-
-    # Exibir contagem de imagens por classe nos conjuntos de treinamento e teste
-    st.write("**Distribuição das Classes no Conjunto de Treinamento:**")
-    train_class_counts = train_df['class_name'].value_counts()
-    st.bar_chart(train_class_counts)
-
-    # Não é possível adicionar botão de download diretamente para st.bar_chart
-
-    st.write("**Distribuição das Classes no Conjunto de Teste:**")
-    test_class_counts = test_df['class_name'].value_counts()
-    st.bar_chart(test_class_counts)
-
-    # Atualizar os datasets com as transformações para serem usados nos DataLoaders
-    train_dataset = CustomDataset(torch.utils.data.Subset(full_dataset, train_indices), transform=train_transforms)
-    valid_dataset = CustomDataset(torch.utils.data.Subset(full_dataset, valid_indices), transform=test_transforms)
-    test_dataset = CustomDataset(torch.utils.data.Subset(full_dataset, test_indices), transform=test_transforms)
-
-    # Dataloaders
-    g = torch.Generator()
-    g.manual_seed(42)
-
+    # Definir a função de perda
     if use_weighted_loss:
-        targets = [full_dataset.targets[i] for i in train_indices]
+        # Calcula os pesos das classes com base no conjunto de treinamento
+        targets = []
+        for _, labels in train_loader:
+            targets.extend(labels.numpy())
         class_counts = np.bincount(targets)
         class_counts = class_counts + 1e-6  # Para evitar divisão por zero
         class_weights = 1.0 / class_counts
@@ -557,15 +425,6 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
         criterion = nn.CrossEntropyLoss(weight=class_weights)
     else:
         criterion = nn.CrossEntropyLoss()
-
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, worker_init_fn=seed_worker, generator=g)
-    valid_loader = DataLoader(valid_dataset, batch_size=batch_size, shuffle=False, worker_init_fn=seed_worker, generator=g)
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, worker_init_fn=seed_worker, generator=g)
-
-    # Carregar o modelo
-    model = get_model(model_name, num_classes, dropout_p=0.5, fine_tune=fine_tune)
-    if model is None:
-        return None
 
     # Definir o otimizador com L2 regularization (weight_decay)
     optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=learning_rate, weight_decay=l2_lambda)
@@ -622,8 +481,8 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
             running_loss += loss.item() * inputs.size(0)
             running_corrects += torch.sum(preds == labels.data)
 
-        epoch_loss = running_loss / len(train_dataset)
-        epoch_acc = running_corrects.double() / len(train_dataset)
+        epoch_loss = running_loss / len(train_loader.dataset)
+        epoch_acc = running_corrects.double() / len(train_loader.dataset)
         st.session_state[train_losses_key].append(epoch_loss)
         st.session_state[train_accuracies_key].append(epoch_acc.item())
 
@@ -644,8 +503,8 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
                 valid_running_loss += loss.item() * inputs.size(0)
                 valid_running_corrects += torch.sum(preds == labels.data)
 
-        valid_epoch_loss = valid_running_loss / len(valid_dataset)
-        valid_epoch_acc = valid_running_corrects.double() / len(valid_dataset)
+        valid_epoch_loss = valid_running_loss / len(valid_loader.dataset)
+        valid_epoch_acc = valid_running_corrects.double() / len(valid_loader.dataset)
         st.session_state[valid_losses_key].append(valid_epoch_loss)
         st.session_state[valid_accuracies_key].append(valid_epoch_acc.item())
 
@@ -720,22 +579,21 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
 
     # Avaliação Final no Conjunto de Teste
     st.write("**Avaliação no Conjunto de Teste**")
-    metrics = compute_metrics(model, test_loader, full_dataset.classes, model_name, run_id)
+    metrics = compute_metrics(model, test_loader, st.session_state['classes'], model_name, run_id)
 
     # Análise de Erros
     st.write("**Análise de Erros**")
-    error_analysis(model, test_loader, full_dataset.classes, model_name, run_id)
+    error_analysis(model, test_loader, st.session_state['classes'], model_name, run_id)
 
     # Clusterização e Análise Comparativa
     st.write("**Análise de Clusterização**")
-    perform_clustering(model, test_loader, full_dataset.classes, model_name, run_id)
+    perform_clustering(model, test_loader, st.session_state['classes'], model_name, run_id)
 
     # Armazenar o modelo e as classes no st.session_state
     st.session_state['model'] = model
-    st.session_state['classes'] = full_dataset.classes
     st.session_state['trained_model_name'] = model_name  # Armazena o nome do modelo treinado
 
-    return model, full_dataset.classes, metrics
+    return model, st.session_state['classes'], metrics
 
 
 def plot_metrics(train_losses, valid_losses, train_accuracies, valid_accuracies, model_name, run_id):
@@ -1345,16 +1203,67 @@ def main():
                     zip_ref.extractall(temp_dir)
                 data_dir = temp_dir
 
+                # Carregar o dataset original sem transformações
+                full_dataset = datasets.ImageFolder(root=data_dir)
+
+                # Verificar se há classes suficientes
+                if len(full_dataset.classes) < num_classes:
+                    st.error(f"O número de classes encontradas ({len(full_dataset.classes)}) é menor do que o número especificado ({num_classes}).")
+                    return
+
+                st.session_state['classes'] = full_dataset.classes  # Armazenar as classes
+
+                # Exibir dados
+                visualize_data(full_dataset, full_dataset.classes)
+                plot_class_distribution(full_dataset, full_dataset.classes)
+
+                # Divisão dos dados
+                dataset_size = len(full_dataset)
+                indices = list(range(dataset_size))
+                np.random.shuffle(indices)
+
+                train_end = int(train_split * dataset_size)
+                valid_end = int((train_split + valid_split) * dataset_size)
+
+                train_indices = indices[:train_end]
+                valid_indices = indices[train_end:valid_end]
+                test_indices = indices[valid_end:]
+
+                # Verificar se há dados suficientes em cada conjunto
+                if len(train_indices) == 0 or len(valid_indices) == 0 or len(test_indices) == 0:
+                    st.error("Divisão dos dados resultou em um conjunto vazio. Ajuste os percentuais de divisão.")
+                    return
+
+                # Criar datasets para treino, validação e teste
+                train_dataset = torch.utils.data.Subset(full_dataset, train_indices)
+                valid_dataset = torch.utils.data.Subset(full_dataset, valid_indices)
+                test_dataset = torch.utils.data.Subset(full_dataset, test_indices)
+
+                # Atualizar os datasets com as transformações para serem usados nos DataLoaders
+                train_dataset = CustomDataset(train_dataset, transform=train_transforms)
+                valid_dataset = CustomDataset(valid_dataset, transform=test_transforms)
+                test_dataset = CustomDataset(test_dataset, transform=test_transforms)
+
+                # Dataloaders
+                g = torch.Generator()
+                g.manual_seed(42)
+
+                train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, worker_init_fn=seed_worker, generator=g)
+                valid_loader = DataLoader(valid_dataset, batch_size=batch_size, shuffle=False, worker_init_fn=seed_worker, generator=g)
+                test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, worker_init_fn=seed_worker, generator=g)
+
                 for i, model_name in enumerate(model_list):
                     for run in range(1, runs_per_model + 1):
                         st.write(f"**Treinando Modelo {i+1}/{len(model_list)} ({model_name}) - Execução {run}/{runs_per_model}**")
                         model_id = f"model_{i+1}"
                         run_id = run
+
+                        # Chamar a função train_model com os datasets pré-processados
                         model_data = train_model(
-                            data_dir, num_classes, model_name, fine_tune,
-                            epochs, learning_rate, batch_size, train_split,
-                            valid_split, use_weighted_loss, l2_lambda, patience,
-                            model_id=model_id, run_id=run_id  # Passar o run_id para métricas distintas
+                            train_loader, valid_loader, test_loader, num_classes, model_name, fine_tune,
+                            epochs, learning_rate, batch_size,
+                            use_weighted_loss, l2_lambda, patience,
+                            model_id=model_id, run_id=run_id
                         )
 
                         if model_data is None:
@@ -1430,7 +1339,6 @@ def main():
 
             except Exception as e:
                 st.error(f"Erro durante o treinamento múltiplo: {e}")
-
     # Opções de carregamento do modelo
     st.header("Opções de Carregamento do Modelo")
 

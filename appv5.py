@@ -1386,8 +1386,6 @@ def main():
 
             except Exception as e:
                 st.error(f"Erro durante o treinamento múltiplo: {e}")
-
-
     # Opções de carregamento do modelo
     st.header("Opções de Carregamento do Modelo")
 

@@ -280,7 +280,7 @@ def apply_transforms_and_get_embeddings(dataset, model, transform, batch_size=16
 
     return df
 
-def display_all_augmented_images(df, class_names, max_images=None):
+def display_all_augmented_images(df, class_names, model_name, run_id, max_images=None):
     """
     Exibe todas as imagens augmentadas do DataFrame de forma organizada e adiciona botões de download para as imagens.
     """
@@ -317,12 +317,12 @@ def display_all_augmented_images(df, class_names, max_images=None):
                             data=file,
                             file_name=image_filename,
                             mime="image/png",
-                            key=f"download_augmented_image_{model_name}_run{run_id}_{idx}"
+                            key=f"download_augmented_image_{model_name}_run{run_id}_{idx}_{uuid.uuid4()}"
                         )
                     if btn:
                         st.success(f"Imagem {idx} baixada com sucesso!")
 
-def visualize_embeddings(df, class_names):
+def visualize_embeddings(df, class_names, model_name, run_id):
     """
     Reduz a dimensionalidade dos embeddings e os visualiza em 2D, adicionando um botão de download para o gráfico.
     """
@@ -363,12 +363,12 @@ def visualize_embeddings(df, class_names):
             data=file,
             file_name=embeddings_pca_filename,
             mime="image/png",
-            key=f"download_embeddings_pca_{model_name}_run{run_id}"
+            key=f"download_embeddings_pca_{model_name}_run{run_id}_{uuid.uuid4()}"
         )
     if btn:
         st.success("Visualização dos embeddings baixada com sucesso!")
 
-    plt.close(fig)  # Removido conforme instrução
+    plt.close()  # Fechar a figura para liberar memória
 
 def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_rate, batch_size, train_split, valid_split, use_weighted_loss, l2_lambda, patience, model_id=None, run_id=None):
     """
@@ -486,12 +486,10 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
     st.dataframe(test_df.drop(columns=['augmented_image']))
 
     # Exibir todas as imagens augmentadas (ou limitar conforme necessário)
-    # Removi o parâmetro 'model_name' e 'run_id' pois não estão disponíveis aqui
-    # Se necessário, passe-os como parâmetros
-    display_all_augmented_images(train_df, full_dataset.classes, max_images=100)  # Ajuste 'max_images' conforme necessário
+    display_all_augmented_images(train_df, full_dataset.classes, model_name, run_id, max_images=100)  # Ajuste 'max_images' conforme necessário
 
     # Visualizar os embeddings
-    visualize_embeddings(train_df, full_dataset.classes)
+    visualize_embeddings(train_df, full_dataset.classes, model_name, run_id)
 
     # Exibir contagem de imagens por classe nos conjuntos de treinamento e teste
     st.write("**Distribuição das Classes no Conjunto de Treinamento:**")
@@ -1167,17 +1165,17 @@ def main():
     icon_path = "logo.png"  # Verifique se o arquivo logo.png está no diretório correto
 
     # Verificar se o arquivo de ícone existe antes de configurá-lo
-    if os.path.exists(icon_path):
-        try:
+    try:
+        if os.path.exists(icon_path):
             st.set_page_config(page_title="Geomaker", page_icon=icon_path, layout="wide")
             logging.info(f"Ícone {icon_path} carregado com sucesso.")
-        except Exception as e:
+        else:
+            # Se o ícone não for encontrado, carrega sem favicon
             st.set_page_config(page_title="Geomaker", layout="wide")
-            logging.warning(f"Erro ao carregar o ícone {icon_path}: {e}")
-    else:
-        # Se o ícone não for encontrado, carrega sem favicon
+            logging.warning(f"Ícone {icon_path} não encontrado, carregando sem favicon.")
+    except Exception as e:
         st.set_page_config(page_title="Geomaker", layout="wide")
-        logging.warning(f"Ícone {icon_path} não encontrado, carregando sem favicon.")
+        logging.warning(f"Erro ao carregar o ícone {icon_path}: {e}")
 
     # Layout da página
     if os.path.exists('capa.png'):
@@ -1308,12 +1306,12 @@ def main():
                     for run in range(1, runs_per_model + 1):
                         st.write(f"**Treinando Modelo {i+1}/{len(model_list)} ({model_name}) - Execução {run}/{runs_per_model}**")
                         model_id = f"model_{i+1}"
-                        run_id = run
+                        current_run_id = run
                         model_data = train_model(
                             data_dir, num_classes, model_name, fine_tune,
                             epochs, learning_rate, batch_size, train_split,
                             valid_split, use_weighted_loss, l2_lambda, patience,
-                            model_id=model_id, run_id=run_id  # Passar o run_id para métricas distintas
+                            model_id=model_id, run_id=current_run_id  # Passar o run_id para métricas distintas
                         )
 
                         if model_data is None:
@@ -1488,9 +1486,14 @@ def main():
                             st.write(f"**{metric}:** Teste Tukey HSD não pode ser realizado. É necessário pelo menos dois modelos com pelo menos duas observações cada.")
 
     # Opções de carregamento do modelo
-    st.header("Opções de Carregamento do Modelo")
+    try:
+        st.header("Opções de Carregamento do Modelo")
+        model_option = st.selectbox("Escolha uma opção:", ["Treinar um novo modelo", "Carregar um modelo existente"], key="model_option_main")
+    except Exception as e:
+        st.error(f"Erro ao exibir as opções de carregamento do modelo: {e}")
+        logging.error(f"Erro ao exibir as opções de carregamento do modelo: {e}")
+        return
 
-    model_option = st.selectbox("Escolha uma opção:", ["Treinar um novo modelo", "Carregar um modelo existente"], key="model_option_main")
     if model_option == "Carregar um modelo existente":
         # Upload do modelo pré-treinado
         model_file = st.file_uploader("Faça upload do arquivo do modelo (.pt ou .pth)", type=["pt", "pth"], key="model_file_uploader_main")

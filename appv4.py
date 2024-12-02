@@ -132,7 +132,8 @@ def visualize_data(dataset, classes):
             label="Download da Visualização de Dados",
             data=file,
             file_name=visualize_data_filename,
-            mime="image/png"
+            mime="image/png",
+            key=f"download_visualize_data_{uuid.uuid4()}"
         )
     if btn:
         st.success("Visualização de dados baixada com sucesso!")
@@ -178,7 +179,8 @@ def plot_class_distribution(dataset, classes):
             label="Download da Distribuição das Classes",
             data=file,
             file_name=class_distribution_filename,
-            mime="image/png"
+            mime="image/png",
+            key=f"download_class_distribution_{uuid.uuid4()}"
         )
     if btn:
         st.success("Distribuição das classes baixada com sucesso!")
@@ -314,7 +316,7 @@ def display_all_augmented_images(df, class_names, max_images=None):
                             data=file,
                             file_name=image_filename,
                             mime="image/png",
-                            key=f"download_augmented_image_{idx}"
+                            key=f"download_augmented_image_{model_name}_run{run_id}_{idx}"
                         )
                     if btn:
                         st.success(f"Imagem {idx} baixada com sucesso!")
@@ -359,10 +361,13 @@ def visualize_embeddings(df, class_names):
             label="Download da Visualização dos Embeddings",
             data=file,
             file_name=embeddings_pca_filename,
-            mime="image/png"
+            mime="image/png",
+            key=f"download_embeddings_pca_{model_name}_run{run_id}"
         )
     if btn:
         st.success("Visualização dos embeddings baixada com sucesso!")
+
+    plt.close(fig)  # Removido conforme instrução
 
 def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_rate, batch_size, train_split, valid_split, use_weighted_loss, l2_lambda, patience, model_id=None, run_id=None):
     """
@@ -402,7 +407,7 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
             data=file,
             file_name=config_filename,
             mime="application/json",
-            key=f"download_config_{model_name}_run{run_id}"
+            key=f"download_config_{model_name}_run{run_id}_{uuid.uuid4()}"
         )
     if btn:
         st.success("Configurações baixadas com sucesso!")
@@ -411,6 +416,7 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
     if model_name in ['ResNet50', 'DenseNet121']:
         batch_size = min(batch_size, 8)  # Ajuste conforme necessário
         st.write(f"Ajustando o tamanho do lote para {batch_size} devido ao uso do {model_name}")
+        logging.info(f"Ajustando o batch size para {batch_size} devido ao uso do {model_name}")
 
     # Carregar o dataset original sem transformações
     full_dataset = datasets.ImageFolder(root=data_dir)
@@ -479,6 +485,8 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
     st.dataframe(test_df.drop(columns=['augmented_image']))
 
     # Exibir todas as imagens augmentadas (ou limitar conforme necessário)
+    # Removi o parâmetro 'model_name' e 'run_id' pois não estão disponíveis aqui
+    # Se necessário, passe-os como parâmetros
     display_all_augmented_images(train_df, full_dataset.classes, max_images=100)  # Ajuste 'max_images' conforme necessário
 
     # Visualizar os embeddings
@@ -632,19 +640,7 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
             plt.savefig(loss_accuracy_filename)
             st.image(loss_accuracy_filename, caption='Perda e Acurácia por Época', use_container_width=True)
 
-            # Disponibilizar para download
-            with open(loss_accuracy_filename, "rb") as file:
-                btn = st.download_button(
-                    label=f"Download do Gráfico de Perda e Acurácia - Execução {run_id}",
-                    data=file,
-                    file_name=loss_accuracy_filename,
-                    mime="image/png",
-                    key=f"download_loss_accuracy_{model_name}_run{run_id}"
-                )
-            if btn:
-                st.success(f"Gráfico de Perda e Acurácia - Execução {run_id} baixado com sucesso!")
-
-            plt.close(fig)  # Removido conforme instrução
+            plt.close(fig)  # Fechar a figura para liberar memória
 
         # Atualizar texto de progresso
         progress = (epoch + 1) / epochs
@@ -737,12 +733,12 @@ def plot_metrics(train_losses, valid_losses, train_accuracies, valid_accuracies,
             data=file,
             file_name=plot_filename,
             mime="image/png",
-            key=f"download_final_loss_accuracy_{model_name}_run{run_id}"
+            key=f"download_final_loss_accuracy_{model_name}_run{run_id}_{uuid.uuid4()}"
         )
     if btn:
         st.success("Gráficos de Perda e Acurácia Finais baixados com sucesso!")
 
-    plt.close(fig)  # Removido conforme instrução
+    plt.close(fig)  # Fechar a figura para liberar memória
 
 def compute_metrics(model, dataloader, classes, model_name, run_id):
     """
@@ -784,7 +780,7 @@ def compute_metrics(model, dataloader, classes, model_name, run_id):
             data=file,
             file_name=report_filename,
             mime="text/csv",
-            key=f"download_classification_report_{model_name}_run{run_id}"
+            key=f"download_classification_report_{model_name}_run{run_id}_{uuid.uuid4()}"
         )
     if btn:
         st.success("Relatório de Classificação baixado com sucesso!")
@@ -808,7 +804,7 @@ def compute_metrics(model, dataloader, classes, model_name, run_id):
             data=file,
             file_name=cm_filename,
             mime="image/png",
-            key=f"download_confusion_matrix_{model_name}_run{run_id}"
+            key=f"download_confusion_matrix_{model_name}_run{run_id}_{uuid.uuid4()}"
         )
     if btn:
         st.success("Matriz de Confusão baixada com sucesso!")
@@ -837,7 +833,7 @@ def compute_metrics(model, dataloader, classes, model_name, run_id):
                 data=file,
                 file_name=roc_filename,
                 mime="image/png",
-                key=f"download_roc_curve_{model_name}_run{run_id}"
+                key=f"download_roc_curve_{model_name}_run{run_id}_{uuid.uuid4()}"
             )
         if btn:
             st.success("Curva ROC baixada com sucesso!")
@@ -860,7 +856,7 @@ def compute_metrics(model, dataloader, classes, model_name, run_id):
                 data=file,
                 file_name=auc_filename,
                 mime="text/plain",
-                key=f"download_auc_roc_{model_name}_run{run_id}"
+                key=f"download_auc_roc_{model_name}_run{run_id}_{uuid.uuid4()}"
             )
         if btn:
             st.success("AUC-ROC baixado com sucesso!")
@@ -896,7 +892,7 @@ def compute_metrics(model, dataloader, classes, model_name, run_id):
             data=file,
             file_name=metrics_filename,
             mime="text/csv",
-            key=f"download_metrics_{model_name}_run{run_id}"
+            key=f"download_metrics_{model_name}_run{run_id}_{uuid.uuid4()}"
         )
     if btn:
         st.success("Métricas baixadas com sucesso!")
@@ -948,7 +944,7 @@ def error_analysis(model, dataloader, classes, model_name, run_id):
                 data=file,
                 file_name=misclassified_filename,
                 mime="image/png",
-                key=f"download_misclassified_{model_name}_run{run_id}"
+                key=f"download_misclassified_{model_name}_run{run_id}_{uuid.uuid4()}"
             )
         if btn:
             st.success("Imagens mal classificadas baixadas com sucesso!")
@@ -998,15 +994,15 @@ def perform_clustering(model, dataloader, classes, model_name, run_id):
     fig, ax = plt.subplots(1, 2, figsize=(14, 6))
 
     # Gráfico KMeans
-    scatter = ax[0].scatter(features_2d[:, 0], features_2d[:, 1], c=clusters_kmeans, cmap='viridis', alpha=0.6)
-    legend1 = ax[0].legend(*scatter.legend_elements(), title="Clusters")
+    scatter_kmeans = ax[0].scatter(features_2d[:, 0], features_2d[:, 1], c=clusters_kmeans, cmap='viridis', alpha=0.6)
+    legend1 = ax[0].legend(*scatter_kmeans.legend_elements(), title="Clusters")
     ax[0].add_artist(legend1)
     ax[0].set_title('Clusterização com KMeans')
 
     # Gráfico Agglomerative Clustering
-    scatter = ax[1].scatter(features_2d[:, 0], features_2d[:, 1], c=clusters_agglo, cmap='viridis', alpha=0.6)
-    legend1 = ax[1].legend(*scatter.legend_elements(), title="Clusters")
-    ax[1].add_artist(legend1)
+    scatter_agglo = ax[1].scatter(features_2d[:, 0], features_2d[:, 1], c=clusters_agglo, cmap='viridis', alpha=0.6)
+    legend2 = ax[1].legend(*scatter_agglo.legend_elements(), title="Clusters")
+    ax[1].add_artist(legend2)
     ax[1].set_title('Clusterização Hierárquica')
 
     plt.tight_layout()
@@ -1021,7 +1017,7 @@ def perform_clustering(model, dataloader, classes, model_name, run_id):
             data=file,
             file_name=clustering_filename,
             mime="image/png",
-            key=f"download_clustering_{model_name}_run{run_id}"
+            key=f"download_clustering_{model_name}_run{run_id}_{uuid.uuid4()}"
         )
     if btn:
         st.success("Resultados de clusterização baixados com sucesso!")
@@ -1056,7 +1052,7 @@ def perform_clustering(model, dataloader, classes, model_name, run_id):
             data=file,
             file_name=clustering_metrics_filename,
             mime="text/csv",
-            key=f"download_clustering_metrics_{model_name}_run{run_id}"
+            key=f"download_clustering_metrics_{model_name}_run{run_id}_{uuid.uuid4()}"
         )
     if btn:
         st.success("Métricas de clusterização baixadas com sucesso!")
@@ -1136,7 +1132,7 @@ def visualize_activations(model, image, class_names, model_name, run_id):
             data=file,
             file_name=activation_filename,
             mime="image/png",
-            key=f"download_grad_cam_{model_name}_run{run_id}"
+            key=f"download_grad_cam_{model_name}_run{run_id}_{uuid.uuid4()}"
         )
     if btn:
         st.success("Visualização de Grad-CAM baixada com sucesso!")
@@ -1144,7 +1140,7 @@ def visualize_activations(model, image, class_names, model_name, run_id):
     # Limpar os hooks após a visualização
     cam_extractor.clear_hooks()
 
-    plt.close(fig)  # Removido conforme instrução
+    plt.close(fig)  # Fechar a figura para liberar memória
 
 def perform_anova(data, groups):
     """
@@ -1164,6 +1160,8 @@ def visualize_anova_results(f_val, p_val):
         st.write("Os resultados não são estatisticamente significativos.")
 
 def main():
+    import uuid  # Importação do módulo uuid para gerar identificadores únicos
+
     # Definir o caminho do ícone
     icon_path = "logo.png"  # Verifique se o arquivo logo.png está no diretório correto
 
@@ -1348,7 +1346,7 @@ def main():
                                 data=file,
                                 file_name=model_filename,
                                 mime="application/octet-stream",
-                                key=f"download_model_button_{model_name}_{run}"
+                                key=f"download_model_button_{model_name}_run{run}_{uuid.uuid4()}"
                             )
                         if btn:
                             st.success(f"Modelo {model_name}_run{run} baixado com sucesso!")
@@ -1369,7 +1367,7 @@ def main():
                                 data=file,
                                 file_name=classes_filename,
                                 mime="text/plain",
-                                key=f"download_classes_button_{model_name}_{run}"
+                                key=f"download_classes_button_{model_name}_run{run}_{uuid.uuid4()}"
                             )
                         if btn:
                             st.success(f"Classes {model_name}_run{run} baixadas com sucesso!")
@@ -1389,7 +1387,7 @@ def main():
                                 data=file,
                                 file_name=metrics_filename,
                                 mime="text/csv",
-                                key=f"download_metrics_button_{model_name}_{run}"
+                                key=f"download_metrics_button_{model_name}_run{run}_{uuid.uuid4()}"
                             )
                         if btn:
                             st.success(f"Métricas {model_name}_run{run} baixadas com sucesso!")
@@ -1418,7 +1416,7 @@ def main():
                             data=file,
                             file_name=all_metrics_filename,
                             mime="text/csv",
-                            key="download_all_model_metrics"
+                            key=f"download_all_model_metrics_{uuid.uuid4()}"
                         )
                     if btn:
                         st.success("Métricas de todos os modelos baixadas com sucesso!")
@@ -1480,17 +1478,13 @@ def main():
                                     data=file,
                                     file_name=tukey_filename,
                                     mime="text/plain",
-                                    key=f"download_tukey_{metric}_run{run_id}"
+                                    key=f"download_tukey_{metric}_run{run_id}_{uuid.uuid4()}"
                                 )
                             if btn:
                                 st.success(f"Resumo Tukey para {metric} baixado com sucesso!")
                                 logging.info(f"Resumo Tukey para {metric} baixado com sucesso.")
                         else:
                             st.write(f"**{metric}:** Teste Tukey HSD não pode ser realizado. É necessário pelo menos dois modelos com pelo menos duas observações cada.")
-
-            except Exception as e:
-                st.error(f"Erro durante o treinamento múltiplo: {e}")
-                logging.error(f"Erro durante o treinamento múltiplo: {e}")
 
     # Opções de carregamento do modelo
     st.header("Opções de Carregamento do Modelo")

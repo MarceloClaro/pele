@@ -11,3 +11,4 @@ torchcam
 opencv-python-headless
 statsmodels
 psutil
+cupy

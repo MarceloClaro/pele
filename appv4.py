@@ -356,188 +356,6 @@ def plot_metrics(train_losses, valid_losses, train_accuracies, valid_accuracies)
     st.pyplot(fig)
     plt.close(fig)  # Fechar a figura para liberar memória
 
-def main():
-    st.title("Classificação de Imagens com Aprendizado Profundo")
-    st.write("Este aplicativo permite treinar modelos de classificação de imagens utilizando PyTorch e Streamlit.")
-
-    # Barra Lateral de Configurações
-    st.sidebar.title("Configurações do Treinamento")
-    num_classes = st.sidebar.number_input("Número de Classes:", min_value=2, step=1, key="num_classes")
-    model_name = st.sidebar.selectbox("Modelo Pré-treinado:", options=['ResNet18', 'ResNet50', 'DenseNet121'], key="model_name")
-    fine_tune = st.sidebar.checkbox("Fine-Tuning Completo", value=False, key="fine_tune")
-    epochs = st.sidebar.slider("Número de Épocas:", min_value=1, max_value=500, value=20, step=1, key="epochs")
-    learning_rate = st.sidebar.select_slider("Taxa de Aprendizagem:", options=[0.1, 0.01, 0.001, 0.0001], value=0.001, key="learning_rate")
-    batch_size = st.sidebar.selectbox("Tamanho de Lote:", options=[4, 8, 16, 32, 64], index=2, key="batch_size")
-    train_split = st.sidebar.slider("Percentual de Treinamento:", min_value=0.5, max_value=0.9, value=0.7, step=0.05, key="train_split")
-    valid_split = st.sidebar.slider("Percentual de Validação:", min_value=0.05, max_value=0.4, value=0.15, step=0.05, key="valid_split")
-    l2_lambda = st.sidebar.number_input("L2 Regularization (Weight Decay):", min_value=0.0, max_value=0.1, value=0.01, step=0.01, key="l2_lambda")
-    patience = st.sidebar.number_input("Paciência para Early Stopping:", min_value=1, max_value=10, value=3, step=1, key="patience")
-    use_weighted_loss = st.sidebar.checkbox("Usar Perda Ponderada para Classes Desbalanceadas", value=False, key="use_weighted_loss")
-
-    # Upload do arquivo ZIP
-    zip_file = st.file_uploader("Upload do arquivo ZIP com as imagens", type=["zip"], key="zip_file_uploader")
-    if zip_file is not None and num_classes > 0 and train_split + valid_split <= 0.95:
-        try:
-            temp_dir = tempfile.mkdtemp()
-            zip_path = os.path.join(temp_dir, "uploaded.zip")
-            with open(zip_path, "wb") as f:
-                f.write(zip_file.read())
-            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                zip_ref.extractall(temp_dir)
-            data_dir = temp_dir
-
-            # Carregar o dataset
-            full_dataset = datasets.ImageFolder(root=data_dir)
-
-            # Verificar se há classes suficientes
-            if len(full_dataset.classes) < num_classes:
-                st.error(f"O número de classes encontradas ({len(full_dataset.classes)}) é menor do que o número especificado ({num_classes}).")
-                shutil.rmtree(temp_dir)
-                return
-
-            st.write(f"**Classes Encontradas:** {full_dataset.classes}")
-
-            # Visualizar algumas imagens
-            visualize_data(full_dataset, full_dataset.classes)
-
-            # Plotar distribuição das classes
-            plot_class_distribution(full_dataset, full_dataset.classes)
-
-            # Divisão dos dados
-            dataset_size = len(full_dataset)
-            indices = list(range(dataset_size))
-            np.random.shuffle(indices)
-
-            train_end = int(train_split * dataset_size)
-            valid_end = int((train_split + valid_split) * dataset_size)
-
-            train_indices = indices[:train_end]
-            valid_indices = indices[train_end:valid_end]
-            test_indices = indices[valid_end:]
-
-            # Verificar se há dados suficientes em cada conjunto
-            if len(train_indices) == 0 or len(valid_indices) == 0 or len(test_indices) == 0:
-                st.error("Divisão dos dados resultou em um conjunto vazio. Ajuste os percentuais de divisão.")
-                shutil.rmtree(temp_dir)
-                return
-
-            # Criar datasets para treino, validação e teste
-            train_dataset = torch.utils.data.Subset(full_dataset, train_indices)
-            valid_dataset = torch.utils.data.Subset(full_dataset, valid_indices)
-            test_dataset = torch.utils.data.Subset(full_dataset, test_indices)
-
-            # Atualizar os datasets com as transformações
-            train_dataset_augmented = CustomDataset(train_dataset, transform=train_transforms)
-            valid_dataset_transformed = CustomDataset(valid_dataset, transform=test_transforms)
-            test_dataset_transformed = CustomDataset(test_dataset, transform=test_transforms)
-
-            # Visualizar as primeiras 20 imagens após Data Augmentation
-            st.write("**Visualização das Primeiras 20 Imagens após Data Augmentation:**")
-            train_df = apply_transforms_and_get_embeddings(train_dataset_augmented, get_model(model_name, num_classes, dropout_p=0.5, fine_tune=False), train_transforms, batch_size=batch_size)
-            display_all_augmented_images(train_df, full_dataset.classes, max_images=20)
-
-            # Visualizar os embeddings com PCA
-            st.write("**Visualização dos Embeddings com PCA:**")
-            embeddings = np.vstack(train_df['embedding'].values)
-            pca = PCA(n_components=2)
-            embeddings_2d = pca.fit_transform(embeddings)
-            labels = train_df['label'].values
-            plt.figure(figsize=(10, 7))
-            sns.scatterplot(x=embeddings_2d[:,0], y=embeddings_2d[:,1], hue=labels, palette='Set2')
-            plt.title('Embeddings com PCA')
-            plt.xlabel('Componente Principal 1')
-            plt.ylabel('Componente Principal 2')
-            st.pyplot(plt)
-            plt.close()
-
-            # Criar DataLoaders
-            g = torch.Generator()
-            g.manual_seed(42)
-
-            train_loader = DataLoader(train_dataset_augmented, batch_size=batch_size, shuffle=True, worker_init_fn=seed_worker, generator=g)
-            valid_loader = DataLoader(valid_dataset_transformed, batch_size=batch_size, shuffle=False, worker_init_fn=seed_worker, generator=g)
-            test_loader = DataLoader(test_dataset_transformed, batch_size=batch_size, shuffle=False, worker_init_fn=seed_worker, generator=g)
-
-            # Carregar o modelo
-            model = get_model(model_name, num_classes, dropout_p=0.5, fine_tune=fine_tune)
-            if model is None:
-                st.error("Erro ao carregar o modelo.")
-                shutil.rmtree(temp_dir)
-                return
-
-            # Definir a função de perda
-            if use_weighted_loss:
-                # Calcula os pesos das classes com base no conjunto de treinamento
-                targets = []
-                for _, labels in train_loader:
-                    targets.extend(labels.numpy())
-                class_counts = np.bincount(targets)
-                class_counts = class_counts + 1e-6  # Para evitar divisão por zero
-                class_weights = 1.0 / class_counts
-                class_weights = torch.FloatTensor(class_weights).to(device)
-                criterion = nn.CrossEntropyLoss(weight=class_weights)
-            else:
-                criterion = nn.CrossEntropyLoss()
-
-            # Definir o otimizador com L2 regularization (weight_decay)
-            optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=learning_rate, weight_decay=l2_lambda)
-
-            # Iniciar o treinamento
-            st.write("**Iniciando o treinamento do modelo...**")
-            model = train_model(train_loader, valid_loader, model, criterion, optimizer, epochs, patience)
-            if model is None:
-                st.error("Erro durante o treinamento.")
-                shutil.rmtree(temp_dir)
-                return
-
-            st.success("Treinamento concluído com sucesso!")
-
-            # Salvar o modelo treinado
-            model_filename = f'{model_name}_trained.pth'
-            torch.save(model.state_dict(), model_filename)
-            st.write(f"Modelo salvo como `{model_filename}`")
-
-            # Salvar as classes em um arquivo
-            classes_data = "\n".join(full_dataset.classes)
-            classes_filename = 'classes.txt'
-            with open(classes_filename, 'w') as f:
-                f.write(classes_data)
-            st.write(f"Classes salvas como `{classes_filename}`")
-
-            # Disponibilizar para download
-            unique_id = uuid.uuid4()
-            with open(model_filename, "rb") as file:
-                st.download_button(
-                    label="Download do Modelo Treinado",
-                    data=file,
-                    file_name=model_filename,
-                    mime="application/octet-stream",
-                    key=f"download_model_{unique_id}"
-                )
-
-            with open(classes_filename, "rb") as file:
-                st.download_button(
-                    label="Download das Classes",
-                    data=file,
-                    file_name=classes_filename,
-                    mime="text/plain",
-                    key=f"download_classes_{unique_id}"
-                )
-
-            # Limpar o diretório temporário
-            shutil.rmtree(temp_dir)
-
-            # Avaliação no conjunto de teste
-            st.write("**Avaliação no Conjunto de Teste**")
-            evaluate_model(model, test_loader, full_dataset.classes)
-
-        except Exception as e:
-            st.error(f"Ocorreu um erro: {e}")
-            shutil.rmtree(temp_dir)
-
-    else:
-        st.warning("Por favor, forneça os dados e as configurações corretas.")
-
 def evaluate_model(model, test_loader, classes):
     """
     Avalia o modelo no conjunto de teste e exibe métricas.
@@ -690,6 +508,197 @@ def evaluate_model(model, test_loader, classes):
             mime="application/json",
             key=f"download_metrics_{uuid.uuid4()}"
         )
+
+def main():
+    st.title("Classificação de Imagens com Aprendizado Profundo")
+    st.write("Este aplicativo permite treinar modelos de classificação de imagens utilizando PyTorch e Streamlit.")
+
+    # Barra Lateral de Configurações
+    st.sidebar.title("Configurações do Treinamento")
+    num_classes = st.sidebar.number_input("Número de Classes:", min_value=2, step=1, key="num_classes")
+    model_name = st.sidebar.selectbox("Modelo Pré-treinado:", options=['ResNet18', 'ResNet50', 'DenseNet121'], key="model_name")
+    fine_tune = st.sidebar.checkbox("Fine-Tuning Completo", value=False, key="fine_tune")
+    epochs = st.sidebar.slider("Número de Épocas:", min_value=1, max_value=500, value=20, step=1, key="epochs")
+    learning_rate = st.sidebar.select_slider("Taxa de Aprendizagem:", options=[0.1, 0.01, 0.001, 0.0001], value=0.001, key="learning_rate")
+    batch_size = st.sidebar.selectbox("Tamanho de Lote:", options=[4, 8, 16, 32, 64], index=2, key="batch_size")
+    train_split = st.sidebar.slider("Percentual de Treinamento:", min_value=0.5, max_value=0.9, value=0.7, step=0.05, key="train_split")
+    valid_split = st.sidebar.slider("Percentual de Validação:", min_value=0.05, max_value=0.4, value=0.15, step=0.05, key="valid_split")
+    l2_lambda = st.sidebar.number_input("L2 Regularization (Weight Decay):", min_value=0.0, max_value=0.1, value=0.01, step=0.01, key="l2_lambda")
+    patience = st.sidebar.number_input("Paciência para Early Stopping:", min_value=1, max_value=10, value=3, step=1, key="patience")
+    use_weighted_loss = st.sidebar.checkbox("Usar Perda Ponderada para Classes Desbalanceadas", value=False, key="use_weighted_loss")
+
+    # Upload do arquivo ZIP
+    zip_file = st.file_uploader("Upload do arquivo ZIP com as imagens", type=["zip"], key="zip_file_uploader")
+    if zip_file is not None and num_classes > 0 and train_split + valid_split <= 0.95:
+        try:
+            temp_dir = tempfile.mkdtemp()
+            zip_path = os.path.join(temp_dir, "uploaded.zip")
+            with open(zip_path, "wb") as f:
+                f.write(zip_file.read())
+            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                zip_ref.extractall(temp_dir)
+            data_dir = temp_dir
+
+            # Carregar o dataset
+            full_dataset = datasets.ImageFolder(root=data_dir)
+
+            # Verificar se há classes suficientes
+            if len(full_dataset.classes) < num_classes:
+                st.error(f"O número de classes encontradas ({len(full_dataset.classes)}) é menor do que o número especificado ({num_classes}).")
+                shutil.rmtree(temp_dir)
+                return
+
+            st.write(f"**Classes Encontradas:** {full_dataset.classes}")
+
+            # Visualizar algumas imagens
+            visualize_data(full_dataset, full_dataset.classes)
+
+            # Plotar distribuição das classes
+            plot_class_distribution(full_dataset, full_dataset.classes)
+
+            # Divisão dos dados
+            dataset_size = len(full_dataset)
+            indices = list(range(dataset_size))
+            np.random.shuffle(indices)
+
+            train_end = int(train_split * dataset_size)
+            valid_end = int((train_split + valid_split) * dataset_size)
+
+            train_indices = indices[:train_end]
+            valid_indices = indices[train_end:valid_end]
+            test_indices = indices[valid_end:]
+
+            # Verificar se há dados suficientes em cada conjunto
+            if len(train_indices) == 0 or len(valid_indices) == 0 or len(test_indices) == 0:
+                st.error("Divisão dos dados resultou em um conjunto vazio. Ajuste os percentuais de divisão.")
+                shutil.rmtree(temp_dir)
+                return
+
+            # Criar datasets para treino, validação e teste
+            train_dataset = torch.utils.data.Subset(full_dataset, train_indices)
+            valid_dataset = torch.utils.data.Subset(full_dataset, valid_indices)
+            test_dataset = torch.utils.data.Subset(full_dataset, test_indices)
+
+            # Atualizar os datasets com as transformações
+            train_dataset_augmented = CustomDataset(train_dataset, transform=train_transforms)
+            valid_dataset_transformed = CustomDataset(valid_dataset, transform=test_transforms)
+            test_dataset_transformed = CustomDataset(test_dataset, transform=test_transforms)
+
+            # Visualizar as primeiras 20 imagens após Data Augmentation
+            st.write("**Visualização das Primeiras 20 Imagens após Data Augmentation:**")
+            # Carregar um modelo sem fine-tuning para extrair embeddings
+            model_for_embeddings = get_model(model_name, num_classes, dropout_p=0.5, fine_tune=False)
+            if model_for_embeddings is None:
+                st.error("Erro ao carregar o modelo para extração de embeddings.")
+                shutil.rmtree(temp_dir)
+                return
+
+            train_df = apply_transforms_and_get_embeddings(train_dataset_augmented, model_for_embeddings, train_transforms, batch_size=batch_size)
+            display_all_augmented_images(train_df, full_dataset.classes, max_images=20)
+
+            # Visualizar os embeddings com PCA
+            st.write("**Visualização dos Embeddings com PCA:**")
+            embeddings = np.vstack(train_df['embedding'].values)
+            pca = PCA(n_components=2)
+            embeddings_2d = pca.fit_transform(embeddings)
+            labels = train_df['label'].values
+            plt.figure(figsize=(10, 7))
+            sns.scatterplot(x=embeddings_2d[:,0], y=embeddings_2d[:,1], hue=labels, palette='Set2')
+            plt.title('Embeddings com PCA')
+            plt.xlabel('Componente Principal 1')
+            plt.ylabel('Componente Principal 2')
+            st.pyplot(plt)
+            plt.close()
+
+            # Criar DataLoaders
+            g = torch.Generator()
+            g.manual_seed(42)
+
+            train_loader = DataLoader(train_dataset_augmented, batch_size=batch_size, shuffle=True, worker_init_fn=seed_worker, generator=g)
+            valid_loader = DataLoader(valid_dataset_transformed, batch_size=batch_size, shuffle=False, worker_init_fn=seed_worker, generator=g)
+            test_loader = DataLoader(test_dataset_transformed, batch_size=batch_size, shuffle=False, worker_init_fn=seed_worker, generator=g)
+
+            # Carregar o modelo
+            model = get_model(model_name, num_classes, dropout_p=0.5, fine_tune=fine_tune)
+            if model is None:
+                st.error("Erro ao carregar o modelo.")
+                shutil.rmtree(temp_dir)
+                return
+
+            # Definir a função de perda
+            if use_weighted_loss:
+                # Calcula os pesos das classes com base no conjunto de treinamento
+                targets = []
+                for _, labels in train_loader:
+                    targets.extend(labels.numpy())
+                class_counts = np.bincount(targets, minlength=num_classes)
+                class_counts = class_counts + 1e-6  # Para evitar divisão por zero
+                class_weights = 1.0 / class_counts
+                class_weights = torch.FloatTensor(class_weights).to(device)
+                criterion = nn.CrossEntropyLoss(weight=class_weights)
+                st.sidebar.write("**Peso das Classes:**")
+                st.sidebar.write(class_weights.cpu().numpy())
+            else:
+                criterion = nn.CrossEntropyLoss()
+
+            # Definir o otimizador com L2 regularization (weight_decay)
+            optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=learning_rate, weight_decay=l2_lambda)
+
+            # Iniciar o treinamento
+            st.write("**Iniciando o treinamento do modelo...**")
+            model = train_model(train_loader, valid_loader, model, criterion, optimizer, epochs, patience)
+            if model is None:
+                st.error("Erro durante o treinamento.")
+                shutil.rmtree(temp_dir)
+                return
+
+            st.success("Treinamento concluído com sucesso!")
+
+            # Salvar o modelo treinado
+            model_filename = f'{model_name}_trained.pth'
+            torch.save(model.state_dict(), model_filename)
+            st.write(f"Modelo salvo como `{model_filename}`")
+
+            # Salvar as classes em um arquivo
+            classes_data = "\n".join(full_dataset.classes)
+            classes_filename = 'classes.txt'
+            with open(classes_filename, 'w') as f:
+                f.write(classes_data)
+            st.write(f"Classes salvas como `{classes_filename}`")
+
+            # Disponibilizar para download
+            unique_id = uuid.uuid4()
+            with open(model_filename, "rb") as file:
+                st.download_button(
+                    label="Download do Modelo Treinado",
+                    data=file,
+                    file_name=model_filename,
+                    mime="application/octet-stream",
+                    key=f"download_model_{unique_id}"
+                )
+
+            with open(classes_filename, "rb") as file:
+                st.download_button(
+                    label="Download das Classes",
+                    data=file,
+                    file_name=classes_filename,
+                    mime="text/plain",
+                    key=f"download_classes_{unique_id}"
+                )
+
+            # Avaliação no conjunto de teste
+            st.write("**Avaliação no Conjunto de Teste**")
+            evaluate_model(model, test_loader, full_dataset.classes)
+
+            # Limpar o diretório temporário
+            shutil.rmtree(temp_dir)
+
+        except Exception as e:
+            st.error(f"Ocorreu um erro: {e}")
+            shutil.rmtree(temp_dir)
+
+    else:
+        st.warning("Por favor, forneça os dados e as configurações corretas.")
 
 if __name__ == "__main__":
     main()

@@ -42,13 +42,14 @@ import uuid  # Importação do módulo uuid para gerar identificadores únicos
 from statsmodels.stats.multicomp import pairwise_tukeyhsd  # Importação para Tukey HSD
 import psutil  # Para monitoramento de recursos
 
-# Configurar o logging
-logging.basicConfig(
-    filename='app.log',  # Nome do arquivo de log
-    filemode='a',         # Acrescentar ao invés de sobrescrever
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    level=logging.INFO     # Nível de severidade
-)
+# Configurar o logging apenas uma vez
+if not logging.getLogger().hasHandlers():
+    logging.basicConfig(
+        filename='app.log',  # Nome do arquivo de log
+        filemode='a',         # Acrescentar ao invés de sobrescrever
+        format='%(asctime)s - %(levelname)s - %(message)s',
+        level=logging.INFO     # Nível de severidade
+    )
 
 # Supressão dos avisos relacionados ao torch.classes e outros específicos
 warnings.filterwarnings("ignore", category=UserWarning, message=".*torch.classes.*")
@@ -161,21 +162,30 @@ def visualize_data(dataset, classes):
         axes[i].set_title(classes[label])
         axes[i].axis('off')
     plt.tight_layout()
-    plt.savefig("visualize_data.png")
-    st.image("visualize_data.png", caption='Exemplos do Conjunto de Dados', use_container_width=True)
+
+    # Salvar em buffer de memória
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png")
+    buf.seek(0)
+    st.image(buf, caption='Exemplos do Conjunto de Dados', use_column_width=True)
 
     # Disponibilizar para download
     unique_id = uuid.uuid4()
-    with open("visualize_data.png", "rb") as file:
+    try:
         btn = st.download_button(
             label="Download da Visualização do Conjunto de Dados",
-            data=file,
+            data=buf,
             file_name="visualize_data.png",
             mime="image/png",
             key=f"download_visualize_data_{unique_id}"
         )
-    if btn:
-        st.success("Visualização do conjunto de dados baixada com sucesso!")
+        if btn:
+            st.success("Visualização do conjunto de dados baixada com sucesso!")
+    except Exception as e:
+        st.error(f"Erro ao disponibilizar o download da visualização: {e}")
+        logging.error(f"Erro ao disponibilizar o download da visualização: {e}")
+
+    plt.close(fig)
 
 def plot_class_distribution(dataset, classes):
     """
@@ -208,21 +218,30 @@ def plot_class_distribution(dataset, classes):
     ax.set_ylabel("Número de Imagens")
 
     plt.tight_layout()
-    plt.savefig("class_distribution.png")
-    st.image("class_distribution.png", caption='Distribuição das Classes', use_container_width=True)
+
+    # Salvar em buffer de memória
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png")
+    buf.seek(0)
+    st.image(buf, caption='Distribuição das Classes', use_column_width=True)
 
     # Disponibilizar para download
     unique_id = uuid.uuid4()
-    with open("class_distribution.png", "rb") as file:
+    try:
         btn = st.download_button(
             label="Download da Distribuição das Classes",
-            data=file,
+            data=buf,
             file_name="class_distribution.png",
             mime="image/png",
             key=f"download_class_distribution_{unique_id}"
         )
-    if btn:
-        st.success("Distribuição das classes baixada com sucesso!")
+        if btn:
+            st.success("Distribuição das classes baixada com sucesso!")
+    except Exception as e:
+        st.error(f"Erro ao disponibilizar o download da distribuição: {e}")
+        logging.error(f"Erro ao disponibilizar o download da distribuição: {e}")
+
+    plt.close(fig)
 
 def get_model(model_name, num_classes, dropout_p=0.5, fine_tune=False):
     """
@@ -380,21 +399,30 @@ def visualize_embeddings(df, class_names):
     plt.ylabel('Componente Principal 2')
 
     plt.tight_layout()
-    plt.savefig("embeddings_pca.png")
-    st.image("embeddings_pca.png", caption='Visualização dos Embeddings com PCA', use_container_width=True)
+
+    # Salvar em buffer de memória
+    buf = io.BytesIO()
+    plt.savefig(buf, format="png")
+    buf.seek(0)
+    st.image(buf, caption='Visualização dos Embeddings com PCA', use_column_width=True)
 
     # Disponibilizar para download
     unique_id = uuid.uuid4()
-    with open("embeddings_pca.png", "rb") as file:
+    try:
         btn = st.download_button(
             label="Download da Visualização dos Embeddings",
-            data=file,
+            data=buf,
             file_name="embeddings_pca.png",
             mime="image/png",
             key=f"download_embeddings_pca_{unique_id}"
         )
-    if btn:
-        st.success("Visualização dos embeddings baixada com sucesso!")
+        if btn:
+            st.success("Visualização dos embeddings baixada com sucesso!")
+    except Exception as e:
+        st.error(f"Erro ao disponibilizar o download da visualização dos embeddings: {e}")
+        logging.error(f"Erro ao disponibilizar o download da visualização dos embeddings: {e}")
+
+    plt.close()
 
 def train_model(train_loader, valid_loader, test_loader, num_classes, model_name, fine_tune, epochs,
                learning_rate, batch_size, use_weighted_loss, l2_lambda, patience,
@@ -425,28 +453,24 @@ def train_model(train_loader, valid_loader, test_loader, num_classes, model_name
 
     st.table(config_df)
 
-    # Salvar configurações em arquivo JSON
-    config_filename = f'config_{model_name}_{run_id}.json'
-    try:
-        with open(config_filename, 'w') as f:
-            json.dump(config, f, indent=4)
-        st.write(f"Configurações salvas como `{config_filename}`")
-        logging.info(f"Configurações salvas como {config_filename}")
-    except Exception as e:
-        st.error(f"Erro ao salvar as configurações: {e}")
-        logging.error(f"Erro ao salvar as configurações: {e}")
+    # Salvar configurações em buffer de memória
+    config_buf = io.BytesIO()
+    config_df.to_csv(config_buf, index=False)
+    config_buf.seek(0)
+
+    st.write(f"Configurações salvas como `config_{model_name}_{run_id}.csv`")
+    logging.info(f"Configurações salvas como config_{model_name}_{run_id}.csv")
 
     # Disponibilizar para download
     unique_id = uuid.uuid4()
     try:
-        with open(config_filename, "rb") as file:
-            btn = st.download_button(
-                label="Download das Configurações",
-                data=file,
-                file_name=config_filename,
-                mime="application/json",
-                key=f"download_config_{model_name}_{run_id}_{unique_id}"
-            )
+        btn = st.download_button(
+            label="Download das Configurações",
+            data=config_buf,
+            file_name=f'config_{model_name}_{run_id}.csv',
+            mime="text/csv",
+            key=f"download_config_{model_name}_{run_id}_{unique_id}"
+        )
         if btn:
             st.success("Configurações baixadas com sucesso!")
             logging.info("Configurações baixadas com sucesso!")
@@ -590,27 +614,31 @@ def train_model(train_loader, valid_loader, test_loader, num_classes, model_name
                 ax[1].legend()
 
                 plt.tight_layout()
-                plot_filename = f'loss_accuracy_{model_name}_{run_id}.png'
-                fig.savefig(plot_filename)
-                st.image(plot_filename, caption='Perda e Acurácia por Época', use_container_width=True)
 
-                # Disponibilizar para download com chave única por época
-                unique_id = uuid.uuid4()
+                # Salvar em buffer de memória
+                buf = io.BytesIO()
+                fig.savefig(buf, format="png")
+                buf.seek(0)
+                st.image(buf, caption='Perda e Acurácia por Época', use_column_width=True)
+
+                # Disponibilizar para download
+                unique_id_plot = uuid.uuid4()
                 try:
-                    with open(plot_filename, "rb") as file:
-                        btn = st.download_button(
-                            label="Download do Gráfico de Perda e Acurácia (Atualizado)",
-                            data=file,
-                            file_name=f'loss_accuracy_{model_name}_{run_id}.png',
-                            mime="image/png",
-                            key=f"download_loss_accuracy_{model_name}_{run_id}_{unique_id}"
-                        )
+                    btn = st.download_button(
+                        label="Download do Gráfico de Perda e Acurácia (Atualizado)",
+                        data=buf,
+                        file_name=f'loss_accuracy_{model_name}_{run_id}.png',
+                        mime="image/png",
+                        key=f"download_loss_accuracy_{model_name}_{run_id}_{unique_id_plot}"
+                    )
                     if btn:
                         st.success("Gráfico de perda e acurácia baixado com sucesso!")
                         logging.info("Gráfico de perda e acurácia baixado com sucesso.")
                 except Exception as e:
                     st.error(f"Erro ao disponibilizar o download do gráfico: {e}")
                     logging.error(f"Erro ao disponibilizar o download do gráfico: {e}")
+
+                plt.close(fig)
 
             # Atualizar texto de progresso
             progress = (epoch + 1) / epochs
@@ -777,7 +805,7 @@ def train_model(train_loader, valid_loader, test_loader, num_classes, model_name
 
 def plot_metrics(train_losses, valid_losses, train_accuracies, valid_accuracies, model_name, run_id):
     """
-    Plota os gráficos de perda e acurácia e salva-os em arquivos.
+    Plota os gráficos de perda e acurácia e salva-os em buffers de memória.
     """
     epochs_range = range(1, len(train_losses) + 1)
     fig, ax = plt.subplots(1, 2, figsize=(14, 5))
@@ -799,27 +827,31 @@ def plot_metrics(train_losses, valid_losses, train_accuracies, valid_accuracies,
     ax[1].legend()
 
     plt.tight_layout()
-    plot_filename = f'loss_accuracy_final_{model_name}_{run_id}.png'
-    fig.savefig(plot_filename)
-    st.image(plot_filename, caption='Perda e Acurácia Finais', use_container_width=True)
+
+    # Salvar em buffer de memória
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png")
+    buf.seek(0)
+    st.image(buf, caption='Perda e Acurácia Finais', use_column_width=True)
 
     # Disponibilizar para download
     unique_id = uuid.uuid4()
     try:
-        with open(plot_filename, "rb") as file:
-            btn = st.download_button(
-                label="Download dos Gráficos de Perda e Acurácia Finais",
-                data=file,
-                file_name=plot_filename,
-                mime="image/png",
-                key=f"download_loss_accuracy_final_{model_name}_{run_id}_{unique_id}"
-            )
+        btn = st.download_button(
+            label="Download dos Gráficos de Perda e Acurácia Finais",
+            data=buf,
+            file_name=f'loss_accuracy_final_{model_name}_{run_id}.png',
+            mime="image/png",
+            key=f"download_loss_accuracy_final_{model_name}_{run_id}_{unique_id}"
+        )
         if btn:
             st.success("Gráficos finais de perda e acurácia baixados com sucesso!")
             logging.info("Gráficos finais de perda e acurácia baixados com sucesso.")
     except Exception as e:
         st.error(f"Erro ao disponibilizar o download dos gráficos finais: {e}")
         logging.error(f"Erro ao disponibilizar o download dos gráficos finais: {e}")
+
+    plt.close(fig)
 
 def compute_metrics(model, dataloader, classes, model_name, run_id):
     """
@@ -860,27 +892,23 @@ def compute_metrics(model, dataloader, classes, model_name, run_id):
 
     st.write(report_df)
 
-    # Salvar relatório de classificação
-    report_filename = f'classification_report_{model_name}_{run_id}.csv'
-    try:
-        report_df.to_csv(report_filename)
-        st.write(f"Relatório de classificação salvo como `{report_filename}`")
-        logging.info(f"Relatório de classificação salvo como {report_filename}")
-    except Exception as e:
-        st.error(f"Erro ao salvar o relatório de classificação: {e}")
-        logging.error(f"Erro ao salvar o relatório de classificação: {e}")
+    # Salvar relatório de classificação em buffer de memória
+    report_buf = io.BytesIO()
+    report_df.to_csv(report_buf, index=True)
+    report_buf.seek(0)
+    st.write(f"Relatório de classificação salvo como `classification_report_{model_name}_{run_id}.csv`")
+    logging.info(f"Relatório de classificação salvo como classification_report_{model_name}_{run_id}.csv")
 
     # Disponibilizar para download
     unique_id = uuid.uuid4()
     try:
-        with open(report_filename, "rb") as file:
-            btn = st.download_button(
-                label="Download do Relatório de Classificação",
-                data=file,
-                file_name=report_filename,
-                mime="text/csv",
-                key=f"download_classification_report_{model_name}_{run_id}_{unique_id}"
-            )
+        btn = st.download_button(
+            label="Download do Relatório de Classificação",
+            data=report_buf,
+            file_name=f'classification_report_{model_name}_{run_id}.csv',
+            mime="text/csv",
+            key=f"download_classification_report_{model_name}_{run_id}_{unique_id}"
+        )
         if btn:
             st.success("Relatório de classificação baixado com sucesso!")
             logging.info("Relatório de classificação baixado com sucesso.")
@@ -896,32 +924,32 @@ def compute_metrics(model, dataloader, classes, model_name, run_id):
     ax.set_ylabel('Verdadeiro')
     ax.set_title('Matriz de Confusão Normalizada')
     plt.tight_layout()
-    cm_filename = f'confusion_matrix_{model_name}_{run_id}.png'
-    try:
-        fig.savefig(cm_filename)
-        st.image(cm_filename, caption='Matriz de Confusão Normalizada', use_container_width=True)
-        logging.info("Matriz de Confusão Normalizada gerada e salva com sucesso.")
-    except Exception as e:
-        st.error(f"Erro ao salvar a Matriz de Confusão: {e}")
-        logging.error(f"Erro ao salvar a Matriz de Confusão: {e}")
+
+    # Salvar em buffer de memória
+    buf_cm = io.BytesIO()
+    fig.savefig(buf_cm, format="png")
+    buf_cm.seek(0)
+    st.image(buf_cm, caption='Matriz de Confusão Normalizada', use_column_width=True)
+    logging.info("Matriz de Confusão Normalizada gerada e exibida com sucesso.")
 
     # Disponibilizar para download
     unique_id_cm = uuid.uuid4()
     try:
-        with open(cm_filename, "rb") as file:
-            btn_cm = st.download_button(
-                label="Download da Matriz de Confusão",
-                data=file,
-                file_name=cm_filename,
-                mime="image/png",
-                key=f"download_confusion_matrix_{model_name}_{run_id}_{unique_id_cm}"
-            )
+        btn_cm = st.download_button(
+            label="Download da Matriz de Confusão",
+            data=buf_cm,
+            file_name=f'confusion_matrix_{model_name}_{run_id}.png',
+            mime="image/png",
+            key=f"download_confusion_matrix_{model_name}_{run_id}_{unique_id_cm}"
+        )
         if btn_cm:
             st.success("Matriz de Confusão baixada com sucesso!")
             logging.info("Matriz de Confusão baixada com sucesso.")
     except Exception as e:
         st.error(f"Erro ao disponibilizar o download da Matriz de Confusão: {e}")
         logging.error(f"Erro ao disponibilizar o download da Matriz de Confusão: {e}")
+
+    plt.close(fig)
 
     # Curva ROC
     roc_auc = None
@@ -937,28 +965,32 @@ def compute_metrics(model, dataloader, classes, model_name, run_id):
             ax.set_title('Curva ROC')
             ax.legend(loc='lower right')
             plt.tight_layout()
-            roc_filename = f'roc_curve_{model_name}_{run_id}.png'
-            fig.savefig(roc_filename)
-            st.image(roc_filename, caption='Curva ROC', use_container_width=True)
-            logging.info("Curva ROC gerada e salva com sucesso.")
+
+            # Salvar em buffer de memória
+            buf_roc = io.BytesIO()
+            fig.savefig(buf_roc, format="png")
+            buf_roc.seek(0)
+            st.image(buf_roc, caption='Curva ROC', use_column_width=True)
+            logging.info("Curva ROC gerada e exibida com sucesso.")
 
             # Disponibilizar para download
             unique_id_roc = uuid.uuid4()
             try:
-                with open(roc_filename, "rb") as file:
-                    btn_roc = st.download_button(
-                        label="Download da Curva ROC",
-                        data=file,
-                        file_name=roc_filename,
-                        mime="image/png",
-                        key=f"download_roc_curve_{model_name}_{run_id}_{unique_id_roc}"
-                    )
+                btn_roc = st.download_button(
+                    label="Download da Curva ROC",
+                    data=buf_roc,
+                    file_name=f'roc_curve_{model_name}_{run_id}.png',
+                    mime="image/png",
+                    key=f"download_roc_curve_{model_name}_{run_id}_{unique_id_roc}"
+                )
                 if btn_roc:
                     st.success("Curva ROC baixada com sucesso!")
                     logging.info("Curva ROC baixada com sucesso.")
             except Exception as e:
                 st.error(f"Erro ao disponibilizar o download da Curva ROC: {e}")
                 logging.error(f"Erro ao disponibilizar o download da Curva ROC: {e}")
+
+            plt.close(fig)
         except Exception as e:
             st.error(f"Erro ao gerar a Curva ROC: {e}")
             logging.error(f"Erro ao gerar a Curva ROC: {e}")
@@ -970,24 +1002,24 @@ def compute_metrics(model, dataloader, classes, model_name, run_id):
             st.write(f"AUC-ROC Média Ponderada: {roc_auc:.4f}")
             logging.info(f"AUC-ROC Média Ponderada calculada: {roc_auc:.4f}")
 
-            # Salvar AUC-ROC
-            auc_filename = f'auc_roc_{model_name}_{run_id}.txt'
-            with open(auc_filename, 'w') as f:
-                f.write(f"AUC-ROC Média Ponderada: {roc_auc:.4f}")
-            st.write(f"AUC-ROC Média Ponderada salvo como `{auc_filename}`")
-            logging.info(f"AUC-ROC Média Ponderada salvo como {auc_filename}")
+            # Salvar AUC-ROC em buffer de memória
+            auc_data = f"AUC-ROC Média Ponderada: {roc_auc:.4f}"
+            buf_auc = io.BytesIO()
+            buf_auc.write(auc_data.encode())
+            buf_auc.seek(0)
+            st.write(f"AUC-ROC Média Ponderada salvo como `auc_roc_{model_name}_{run_id}.txt`")
+            logging.info(f"AUC-ROC Média Ponderada salvo como auc_roc_{model_name}_{run_id}.txt")
 
             # Disponibilizar para download
             unique_id_auc = uuid.uuid4()
             try:
-                with open(auc_filename, "rb") as file:
-                    btn_auc = st.download_button(
-                        label="Download do AUC-ROC",
-                        data=file,
-                        file_name=auc_filename,
-                        mime="text/plain",
-                        key=f"download_auc_roc_{model_name}_{run_id}_{unique_id_auc}"
-                    )
+                btn_auc = st.download_button(
+                    label="Download do AUC-ROC",
+                    data=buf_auc,
+                    file_name=f'auc_roc_{model_name}_{run_id}.txt',
+                    mime="text/plain",
+                    key=f"download_auc_roc_{model_name}_{run_id}_{unique_id_auc}"
+                )
                 if btn_auc:
                     st.success("AUC-ROC baixado com sucesso!")
                     logging.info("AUC-ROC baixado com sucesso.")
@@ -1056,32 +1088,31 @@ def error_analysis(model, dataloader, classes, model_name, run_id):
             axes[i].set_title(f"V: {classes[misclassified_labels[i]]}\nP: {classes[misclassified_preds[i]]}")
             axes[i].axis('off')
         plt.tight_layout()
-        misclassified_filename = f'misclassified_{model_name}_{run_id}.png'
-        try:
-            fig.savefig(misclassified_filename)
-            st.image(misclassified_filename, caption='Exemplos de Erros de Classificação', use_container_width=True)
-            logging.info("Exemplos de erros de classificação gerados e salvos com sucesso.")
-        except Exception as e:
-            st.error(f"Erro ao salvar as imagens mal classificadas: {e}")
-            logging.error(f"Erro ao salvar as imagens mal classificadas: {e}")
+
+        # Salvar em buffer de memória
+        buf = io.BytesIO()
+        fig.savefig(buf, format="png")
+        buf.seek(0)
+        st.image(buf, caption='Exemplos de Erros de Classificação', use_column_width=True)
 
         # Disponibilizar para download
         unique_id = uuid.uuid4()
         try:
-            with open(misclassified_filename, "rb") as file:
-                btn = st.download_button(
-                    label="Download das Imagens Mal Classificadas",
-                    data=file,
-                    file_name=f'misclassified_{model_name}_{run_id}.png',
-                    mime="image/png",
-                    key=f"download_misclassified_{model_name}_{run_id}_{unique_id}"
-                )
+            btn = st.download_button(
+                label="Download das Imagens Mal Classificadas",
+                data=buf,
+                file_name=f'misclassified_{model_name}_{run_id}.png',
+                mime="image/png",
+                key=f"download_misclassified_{model_name}_{run_id}_{unique_id}"
+            )
             if btn:
                 st.success("Imagens mal classificadas baixadas com sucesso!")
                 logging.info("Imagens mal classificadas baixadas com sucesso.")
         except Exception as e:
             st.error(f"Erro ao disponibilizar o download das imagens mal classificadas: {e}")
             logging.error(f"Erro ao disponibilizar o download das imagens mal classificadas: {e}")
+
+        plt.close(fig)
     else:
         st.write("Nenhuma imagem mal classificada encontrada.")
         logging.info("Nenhuma imagem mal classificada encontrada durante a análise de erros.")
@@ -1141,32 +1172,32 @@ def perform_clustering(model, dataloader, classes, model_name, run_id):
     ax[1].set_title('Clusterização Hierárquica')
 
     plt.tight_layout()
-    clustering_filename = f'clustering_{model_name}_{run_id}.png'
-    try:
-        fig.savefig(clustering_filename)
-        st.image(clustering_filename, caption='Resultados da Clusterização', use_container_width=True)
-        logging.info("Resultados de clusterização gerados e salvos com sucesso.")
-    except Exception as e:
-        st.error(f"Erro ao salvar os resultados de clusterização: {e}")
-        logging.error(f"Erro ao salvar os resultados de clusterização: {e}")
+
+    # Salvar em buffer de memória
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png")
+    buf.seek(0)
+    st.image(buf, caption='Resultados da Clusterização', use_column_width=True)
+    logging.info("Resultados de clusterização gerados e exibidos com sucesso.")
 
     # Disponibilizar para download
     unique_id = uuid.uuid4()
     try:
-        with open(clustering_filename, "rb") as file:
-            btn = st.download_button(
-                label="Download dos Resultados de Clusterização",
-                data=file,
-                file_name=clustering_filename,
-                mime="image/png",
-                key=f"download_clustering_{model_name}_{run_id}_{unique_id}"
-            )
+        btn = st.download_button(
+            label="Download dos Resultados de Clusterização",
+            data=buf,
+            file_name=f'clustering_{model_name}_{run_id}.png',
+            mime="image/png",
+            key=f"download_clustering_{model_name}_{run_id}_{unique_id}"
+        )
         if btn:
             st.success("Resultados de clusterização baixados com sucesso!")
             logging.info("Resultados de clusterização baixados com sucesso.")
     except Exception as e:
         st.error(f"Erro ao disponibilizar o download dos resultados de clusterização: {e}")
         logging.error(f"Erro ao disponibilizar o download dos resultados de clusterização: {e}")
+
+    plt.close(fig)
 
     # Métricas de Avaliação
     try:
@@ -1183,7 +1214,7 @@ def perform_clustering(model, dataloader, classes, model_name, run_id):
         st.error(f"Erro ao calcular as métricas de clusterização: {e}")
         logging.error(f"Erro ao calcular as métricas de clusterização: {e}")
 
-    # Salvar métricas de clusterização
+    # Salvar métricas de clusterização em buffer de memória
     clustering_metrics = {
         'Model': model_name,
         'Run_ID': run_id,
@@ -1194,31 +1225,22 @@ def perform_clustering(model, dataloader, classes, model_name, run_id):
     }
     clustering_metrics_df = pd.DataFrame([clustering_metrics])
 
-    # Converter colunas booleanas em strings ou numéricas
-    for col in clustering_metrics_df.columns:
-        if clustering_metrics_df[col].dtype == 'bool':
-            clustering_metrics_df[col] = clustering_metrics_df[col].astype(str)
-
-    clustering_metrics_filename = f'clustering_metrics_{model_name}_{run_id}.csv'
-    try:
-        clustering_metrics_df.to_csv(clustering_metrics_filename, index=False)
-        st.write(f"Métricas de clusterização salvas como `{clustering_metrics_filename}`")
-        logging.info(f"Métricas de clusterização salvas como {clustering_metrics_filename}")
-    except Exception as e:
-        st.error(f"Erro ao salvar as métricas de clusterização: {e}")
-        logging.error(f"Erro ao salvar as métricas de clusterização: {e}")
+    clustering_metrics_buf = io.BytesIO()
+    clustering_metrics_df.to_csv(clustering_metrics_buf, index=False)
+    clustering_metrics_buf.seek(0)
+    st.write(f"Métricas de clusterização salvas como `clustering_metrics_{model_name}_{run_id}.csv`")
+    logging.info(f"Métricas de clusterização salvas como clustering_metrics_{model_name}_{run_id}.csv")
 
     # Disponibilizar para download das métricas de clusterização
     unique_id_cm = uuid.uuid4()
     try:
-        with open(clustering_metrics_filename, "rb") as file:
-            btn_cm = st.download_button(
-                label="Download das Métricas de Clusterização",
-                data=file,
-                file_name=clustering_metrics_filename,
-                mime="text/csv",
-                key=f"download_clustering_metrics_{model_name}_{run_id}_{unique_id_cm}"
-            )
+        btn_cm = st.download_button(
+            label="Download das Métricas de Clusterização",
+            data=clustering_metrics_buf,
+            file_name=f'clustering_metrics_{model_name}_{run_id}.csv',
+            mime="text/csv",
+            key=f"download_clustering_metrics_{model_name}_{run_id}_{unique_id_cm}"
+        )
         if btn_cm:
             st.success("Métricas de clusterização baixadas com sucesso!")
             logging.info("Métricas de clusterização baixadas com sucesso.")
@@ -1313,32 +1335,32 @@ def visualize_activations(model, image, class_names, model_name, run_id):
         ax[1].axis('off')
 
         plt.tight_layout()
-        activation_filename = f'grad_cam_{model_name}_{run_id}.png'
-        try:
-            fig.savefig(activation_filename)
-            st.image(activation_filename, caption='Visualização de Grad-CAM', use_container_width=True)
-            logging.info("Visualização de Grad-CAM gerada e salva com sucesso.")
-        except Exception as e:
-            st.error(f"Erro ao salvar a visualização de Grad-CAM: {e}")
-            logging.error(f"Erro ao salvar a visualização de Grad-CAM: {e}")
+
+        # Salvar em buffer de memória
+        buf = io.BytesIO()
+        fig.savefig(buf, format="png")
+        buf.seek(0)
+        st.image(buf, caption='Visualização de Grad-CAM', use_container_width=True)
+        logging.info("Visualização de Grad-CAM gerada e exibida com sucesso.")
 
         # Disponibilizar para download
         unique_id = uuid.uuid4()
         try:
-            with open(activation_filename, "rb") as file:
-                btn = st.download_button(
-                    label="Download da Visualização de Grad-CAM",
-                    data=file,
-                    file_name=activation_filename,
-                    mime="image/png",
-                    key=f"download_grad_cam_{model_name}_{run_id}_{unique_id}"
-                )
+            btn = st.download_button(
+                label="Download da Visualização de Grad-CAM",
+                data=buf,
+                file_name=f'grad_cam_{model_name}_{run_id}.png',
+                mime="image/png",
+                key=f"download_grad_cam_{model_name}_{run_id}_{unique_id}"
+            )
             if btn:
                 st.success("Visualização de Grad-CAM baixada com sucesso!")
                 logging.info("Visualização de Grad-CAM baixada com sucesso.")
         except Exception as e:
             st.error(f"Erro ao disponibilizar o download da visualização de Grad-CAM: {e}")
             logging.error(f"Erro ao disponibilizar o download da visualização de Grad-CAM: {e}")
+
+        plt.close(fig)
 
         # Limpar os hooks após a visualização
         cam_extractor.clear_hooks()
@@ -1408,28 +1430,24 @@ def perform_statistical_analysis():
                     st.sidebar.write(tukey.summary())
                     logging.info("Teste de Tukey HSD realizado com sucesso.")
 
-                    # Salvar o resultado do Tukey HSD
-                    tukey_filename = f'tukey_hsd_{selected_metric}.csv'
+                    # Salvar o resultado do Tukey HSD em buffer de memória
                     tukey_df = pd.DataFrame(data=tukey.summary().data[1:], columns=tukey.summary().data[0])
-                    try:
-                        tukey_df.to_csv(tukey_filename, index=False)
-                        st.sidebar.write(f"Teste de Tukey HSD salvo como `{tukey_filename}`")
-                        logging.info(f"Teste de Tukey HSD salvo como {tukey_filename}")
-                    except Exception as e:
-                        st.sidebar.write(f"Erro ao salvar o Teste de Tukey HSD: {e}")
-                        logging.error(f"Erro ao salvar o Teste de Tukey HSD: {e}")
+                    tukey_buf = io.BytesIO()
+                    tukey_df.to_csv(tukey_buf, index=False)
+                    tukey_buf.seek(0)
+                    st.sidebar.write(f"Teste de Tukey HSD salvo como `tukey_hsd_{selected_metric}.csv`")
+                    logging.info(f"Teste de Tukey HSD salvo como tukey_hsd_{selected_metric}.csv")
 
                     # Disponibilizar para download do Tukey HSD
                     unique_id_tukey = uuid.uuid4()
                     try:
-                        with open(tukey_filename, "rb") as file:
-                            btn_tukey = st.sidebar.download_button(
-                                label="Download do Teste de Tukey HSD",
-                                data=file,
-                                file_name=tukey_filename,
-                                mime="text/csv",
-                                key=f"download_tukey_hsd_{selected_metric}_{unique_id_tukey}"
-                            )
+                        btn_tukey = st.sidebar.download_button(
+                            label="Download do Teste de Tukey HSD",
+                            data=tukey_buf,
+                            file_name=f'tukey_hsd_{selected_metric}.csv',
+                            mime="text/csv",
+                            key=f"download_tukey_hsd_{selected_metric}_{unique_id_tukey}"
+                        )
                         if btn_tukey:
                             st.sidebar.success("Teste de Tukey HSD baixado com sucesso!")
                             logging.info("Teste de Tukey HSD baixado com sucesso.")
@@ -1468,7 +1486,10 @@ def main():
     # Layout da página
     if os.path.exists('capa.png'):
         try:
-            st.image('capa.png', width=100, caption='Laboratório de Educação e Inteligência Artificial - Geomaker. "A melhor forma de prever o futuro é inventá-lo." - Alan Kay', use_container_width=True)
+            # Carregar imagem em buffer de memória
+            with open('capa.png', "rb") as image_file:
+                capa_image = image_file.read()
+            st.image(capa_image, width=100, caption='Laboratório de Educação e Inteligência Artificial - Geomaker. "A melhor forma de prever o futuro é inventá-lo." - Alan Kay', use_container_width=True)
         except UnidentifiedImageError:
             st.warning("Imagem 'capa.png' não pôde ser carregada ou está corrompida.")
             logging.error("Imagem 'capa.png' não pôde ser carregada ou está corrompida.")
@@ -1479,7 +1500,9 @@ def main():
     # Carregar o logotipo na barra lateral
     if os.path.exists("logo.png"):
         try:
-            st.sidebar.image("logo.png", width=200)
+            with open("logo.png", "rb") as logo_file:
+                logo_image = logo_file.read()
+            st.sidebar.image(logo_image, width=200)
         except UnidentifiedImageError:
             st.sidebar.text("Imagem do logotipo não pôde ser carregada ou está corrompida.")
             logging.error("Imagem do logotipo não pôde ser carregada ou está corrompida.")
@@ -1516,25 +1539,25 @@ def main():
         history_df = pd.DataFrame(st.session_state['all_model_metrics'])
         st.sidebar.dataframe(history_df)
         # Disponibilizar para download do histórico
-        history_filename = "historico_treinamentos.csv"
+        history_buf = io.BytesIO()
         try:
-            history_df.to_csv(history_filename, index=False)
-            st.sidebar.write(f"Histórico salvo como `{history_filename}`")
-            logging.info(f"Histórico salvo como {history_filename}")
+            history_df.to_csv(history_buf, index=False)
+            history_buf.seek(0)
+            st.sidebar.write(f"Histórico salvo como `historico_treinamentos.csv`")
+            logging.info(f"Histórico salvo como historico_treinamentos.csv")
         except Exception as e:
             st.sidebar.write(f"Erro ao salvar o histórico: {e}")
             logging.error(f"Erro ao salvar o histórico: {e}")
 
         unique_id_history = uuid.uuid4()
         try:
-            with open(history_filename, "rb") as file:
-                btn_history = st.sidebar.download_button(
-                    label="Download do Histórico de Treinamentos",
-                    data=file,
-                    file_name=history_filename,
-                    mime="text/csv",
-                    key=f"download_history_{unique_id_history}"
-                )
+            btn_history = st.sidebar.download_button(
+                label="Download do Histórico de Treinamentos",
+                data=history_buf,
+                file_name="historico_treinamentos.csv",
+                mime="text/csv",
+                key=f"download_history_{unique_id_history}"
+            )
             if btn_history:
                 st.sidebar.success("Histórico de treinamentos baixado com sucesso!")
                 logging.info("Histórico de treinamentos baixado com sucesso.")
@@ -1639,11 +1662,9 @@ def main():
         # Upload do modelo pré-treinado
         model_file = st.file_uploader("Faça upload do arquivo do modelo (.pt ou .pth)", type=["pt", "pth"], key="model_file_uploader_main")
         if model_file is not None:
-            # Após carregar o dataset, definir num_classes automaticamente
             # Seleção do modelo
             model_name_load = st.selectbox("Modelo Pré-treinado:", options=['ResNet18', 'ResNet50', 'DenseNet121'], key="model_name_single_load")
-            # Carregar o modelo
-            # Temporariamente, carregar as classes primeiro
+            # Upload das classes
             classes_file = st.file_uploader("Faça upload do arquivo com as classes (classes.txt)", type=["txt"], key="classes_file_uploader_main_load")
             if classes_file is not None:
                 try:
@@ -1762,27 +1783,23 @@ def main():
                 # Visualizar embeddings em 2D
                 visualize_embeddings(df_embeddings_single, full_dataset_single.classes)
 
-                # Salvar o DataFrame de embeddings
-                df_embeddings_filename_single = f'embeddings_dataframe_{uuid.uuid4()}.csv'
-                try:
-                    df_embeddings_single.to_csv(df_embeddings_filename_single, index=False)
-                    st.write(f"DataFrame de embeddings salvo como `{df_embeddings_filename_single}`")
-                    logging.info(f"DataFrame de embeddings salvo como {df_embeddings_filename_single}")
-                except Exception as e:
-                    st.error(f"Erro ao salvar o DataFrame de embeddings: {e}")
-                    logging.error(f"Erro ao salvar o DataFrame de embeddings: {e}")
+                # Salvar o DataFrame de embeddings em buffer de memória
+                df_embeddings_buf = io.BytesIO()
+                df_embeddings_single.to_csv(df_embeddings_buf, index=False)
+                df_embeddings_buf.seek(0)
+                st.write(f"DataFrame de embeddings salvo como `embeddings_dataframe_{run_id}.csv`")
+                logging.info(f"DataFrame de embeddings salvo como embeddings_dataframe_{run_id}.csv")
 
                 # Disponibilizar para download
                 unique_id = uuid.uuid4()
                 try:
-                    with open(df_embeddings_filename_single, "rb") as file:
-                        btn = st.download_button(
-                            label="Download do DataFrame de Embeddings",
-                            data=file,
-                            file_name=df_embeddings_filename_single,
-                            mime="text/csv",
-                            key=f"download_embeddings_dataframe_single_{unique_id}"
-                        )
+                    btn = st.download_button(
+                        label="Download do DataFrame de Embeddings",
+                        data=df_embeddings_buf,
+                        file_name=f'embeddings_dataframe_{run_id}.csv',
+                        mime="text/csv",
+                        key=f"download_embeddings_dataframe_single_{unique_id}"
+                    )
                     if btn:
                         st.success("DataFrame de embeddings baixado com sucesso!")
                         logging.info("DataFrame de embeddings baixado com sucesso.")
@@ -1810,12 +1827,13 @@ def main():
 
                 st.success("Treinamento concluído!")
 
-                # Salvar o modelo treinado
-                model_filename_single = f'{model_name}_{run_id_single}.pth'
+                # Salvar o modelo treinado em buffer de memória
+                model_buf = io.BytesIO()
                 try:
-                    torch.save(model_single.state_dict(), model_filename_single)
-                    st.write(f"Modelo treinado salvo como `{model_filename_single}`")
-                    logging.info(f"Modelo treinado salvo como {model_filename_single}")
+                    torch.save(model_single.state_dict(), model_buf)
+                    model_buf.seek(0)
+                    st.write(f"Modelo treinado salvo como `{model_name}_{run_id_single}.pth`")
+                    logging.info(f"Modelo treinado salvo como {model_name}_{run_id_single}.pth")
                 except Exception as e:
                     st.error(f"Erro ao salvar o modelo treinado: {e}")
                     logging.error(f"Erro ao salvar o modelo treinado: {e}")
@@ -1823,14 +1841,13 @@ def main():
                 # Disponibilizar para download do modelo treinado
                 unique_id_model = uuid.uuid4()
                 try:
-                    with open(model_filename_single, "rb") as file:
-                        btn_model = st.download_button(
-                            label="Download do Modelo Treinado",
-                            data=file,
-                            file_name=model_filename_single,
-                            mime="application/octet-stream",
-                            key=f"download_model_{model_name}_{run_id_single}_{unique_id_model}"
-                        )
+                    btn_model = st.download_button(
+                        label="Download do Modelo Treinado",
+                        data=model_buf,
+                        file_name=f'{model_name}_{run_id_single}.pth',
+                        mime="application/octet-stream",
+                        key=f"download_model_{model_name}_{run_id_single}_{unique_id_model}"
+                    )
                     if btn_model:
                         st.success("Modelo treinado baixado com sucesso!")
                         logging.info("Modelo treinado baixado com sucesso.")
@@ -1838,14 +1855,14 @@ def main():
                     st.error(f"Erro ao disponibilizar o download do modelo treinado: {e}")
                     logging.error(f"Erro ao disponibilizar o download do modelo treinado: {e}")
 
-                # Salvar as classes em um arquivo
+                # Salvar as classes em um arquivo de texto em buffer de memória
                 classes_data_single = "\n".join(classes_single)
-                classes_filename_single = f'classes_{model_name}_{run_id_single}.txt'
+                classes_buf = io.BytesIO()
                 try:
-                    with open(classes_filename_single, 'w') as f:
-                        f.write(classes_data_single)
-                    st.write(f"Classes salvas como `{classes_filename_single}`")
-                    logging.info(f"Classes salvas como {classes_filename_single}")
+                    classes_buf.write(classes_data_single.encode())
+                    classes_buf.seek(0)
+                    st.write(f"Classes salvas como `classes_{model_name}_{run_id_single}.txt`")
+                    logging.info(f"Classes salvas como classes_{model_name}_{run_id_single}.txt")
                 except Exception as e:
                     st.error(f"Erro ao salvar as classes: {e}")
                     logging.error(f"Erro ao salvar as classes: {e}")
@@ -1853,14 +1870,13 @@ def main():
                 # Disponibilizar para download das classes
                 unique_id_classes = uuid.uuid4()
                 try:
-                    with open(classes_filename_single, "rb") as file:
-                        btn_classes = st.download_button(
-                            label="Download das Classes",
-                            data=file,
-                            file_name=classes_filename_single,
-                            mime="text/plain",
-                            key=f"download_classes_{model_name}_{run_id_single}_{unique_id_classes}"
-                        )
+                    btn_classes = st.download_button(
+                        label="Download das Classes",
+                        data=classes_buf,
+                        file_name=f'classes_{model_name}_{run_id_single}.txt',
+                        mime="text/plain",
+                        key=f"download_classes_{model_name}_{run_id_single}_{unique_id_classes}"
+                    )
                     if btn_classes:
                         st.success("Classes baixadas com sucesso!")
                         logging.info("Classes baixadas com sucesso.")
@@ -1868,13 +1884,14 @@ def main():
                     st.error(f"Erro ao disponibilizar o download das classes: {e}")
                     logging.error(f"Erro ao disponibilizar o download das classes: {e}")
 
-                # Salvar métricas em arquivo CSV
+                # Salvar métricas em buffer de memória
+                metrics_buf = io.BytesIO()
                 metrics_df_single = pd.DataFrame([metrics_single])
-                metrics_filename_single = f'metrics_{model_name}_{run_id_single}.csv'
                 try:
-                    metrics_df_single.to_csv(metrics_filename_single, index=False)
-                    st.write(f"Métricas salvas como `{metrics_filename_single}`")
-                    logging.info(f"Métricas salvas como {metrics_filename_single}")
+                    metrics_df_single.to_csv(metrics_buf, index=False)
+                    metrics_buf.seek(0)
+                    st.write(f"Métricas salvas como `metrics_{model_name}_{run_id_single}.csv`")
+                    logging.info(f"Métricas salvas como metrics_{model_name}_{run_id_single}.csv")
                 except Exception as e:
                     st.error(f"Erro ao salvar as métricas: {e}")
                     logging.error(f"Erro ao salvar as métricas: {e}")
@@ -1882,14 +1899,13 @@ def main():
                 # Disponibilizar para download das métricas
                 unique_id_metrics = uuid.uuid4()
                 try:
-                    with open(metrics_filename_single, "rb") as file:
-                        btn_metrics = st.download_button(
-                            label="Download das Métricas",
-                            data=file,
-                            file_name=metrics_filename_single,
-                            mime="text/csv",
-                            key=f"download_metrics_{model_name}_{run_id_single}_{unique_id_metrics}"
-                        )
+                    btn_metrics = st.download_button(
+                        label="Download das Métricas",
+                        data=metrics_buf,
+                        file_name=f'metrics_{model_name}_{run_id_single}.csv',
+                        mime="text/csv",
+                        key=f"download_metrics_{model_name}_{run_id_single}_{unique_id_metrics}"
+                    )
                     if btn_metrics:
                         st.success("Métricas baixadas com sucesso!")
                         logging.info("Métricas baixadas com sucesso.")
@@ -1912,7 +1928,9 @@ def main():
             # Opção para carregar um modelo existente
             model_file_eval = st.file_uploader("Faça upload do arquivo do modelo (.pt ou .pth)", type=["pt", "pth"], key="model_file_uploader_eval")
             if model_file_eval is not None:
-                # Temporariamente, carregar as classes primeiro
+                # Seleção do modelo
+                model_name_eval = st.selectbox("Modelo Pré-treinado:", options=['ResNet18', 'ResNet50', 'DenseNet121'], key="model_name_eval")
+                # Upload das classes
                 classes_file_eval = st.file_uploader("Faça upload do arquivo com as classes (classes.txt)", type=["txt"], key="classes_file_uploader_eval_load")
                 if classes_file_eval is not None:
                     try:
@@ -1920,12 +1938,12 @@ def main():
                         st.session_state['classes'] = classes_eval
                         st.write(f"Classes carregadas: {classes_eval}")
                         num_classes_eval = len(classes_eval)
-                        model_name_eval = st.selectbox("Modelo Pré-treinado:", options=['ResNet18', 'ResNet50', 'DenseNet121'], key="model_name_eval")
                         model_eval = get_model(model_name_eval, num_classes_eval, dropout_p=0.5, fine_tune=False)
                         if model_eval is None:
                             st.error("Erro ao carregar o modelo.")
                             logging.error("Erro ao carregar o modelo durante a avaliação de imagem.")
                             return
+                        # Carregar os pesos do modelo
                         try:
                             state_dict = torch.load(model_file_eval, map_location=device)
                             model_eval.load_state_dict(state_dict)

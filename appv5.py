@@ -327,7 +327,7 @@ def display_all_augmented_images(df, class_names, max_images=None):
                 image = df.iloc[idx]['augmented_image']
                 label = df.iloc[idx]['label']
                 with cols[col]:
-                    st.image(image, caption=class_names[label], use_column_width=True)
+                    st.image(image, caption=class_names[label], use_container_width=True)  # Substituído
 
 def visualize_embeddings(df, class_names):
     """
@@ -435,7 +435,7 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
     st.dataframe(test_df.drop(columns=['augmented_image']))
 
     # Exibir todas as imagens augmentadas (ou limitar conforme necessário)
-    display_all_augmented_images(train_df, full_dataset.classes, max_images=100)  # Ajuste 'max_images' conforme necessário
+    display_all_augmented_images(train_df, full_dataset.classes, max_images=100)  # Substituído para usar use_container_width=True
 
     # Visualizar os embeddings
     visualize_embeddings(train_df, full_dataset.classes)
@@ -646,6 +646,9 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
     if best_model_wts is not None:
         model.load_state_dict(best_model_wts)
 
+    # Registrar o run_id no session_state
+    st.session_state['run_id'] = run_id
+
     # Gráficos de Perda e Acurácia finais
     plot_metrics(st.session_state.train_losses, st.session_state.valid_losses, 
                 st.session_state.train_accuracies, st.session_state.valid_accuracies, run_id)
@@ -695,7 +698,7 @@ def plot_metrics(train_losses, valid_losses, train_accuracies, valid_accuracies,
     buffer = io.BytesIO()
     fig.savefig(buffer, format="png")
     buffer.seek(0)
-    st.image(buffer, caption='Perda e Acurácia por Época', use_column_width=True)
+    st.image(buffer, caption='Perda e Acurácia por Época', use_container_width=True)  # Substituído
 
     # Botão para download
     btn = st.download_button(
@@ -1029,7 +1032,7 @@ def main():
     # Layout da página
     if os.path.exists('capa.png'):
         try:
-            st.image('capa.png', width=100, caption='Laboratório de Educação e Inteligência Artificial - Geomaker. "A melhor forma de prever o futuro é inventá-lo." - Alan Kay', use_container_width=True)
+            st.image('capa.png', width=100, caption='Laboratório de Educação e Inteligência Artificial - Geomaker. "A melhor forma de prever o futuro é inventá-lo." - Alan Kay', use_container_width=True)  # Substituído
         except UnidentifiedImageError:
             st.warning("Imagem 'capa.png' não pôde ser carregada ou está corrompida.")
     else:
@@ -1038,7 +1041,7 @@ def main():
     # Carregar o logotipo na barra lateral
     if os.path.exists("logo.png"):
         try:
-            st.sidebar.image("logo.png", width=200)
+            st.sidebar.image("logo.png", width=200)  # Mantido 'width' se necessário
         except UnidentifiedImageError:
             st.sidebar.text("Imagem do logotipo não pôde ser carregada ou está corrompida.")
     else:
@@ -1204,6 +1207,7 @@ def main():
 
             # Gerar um run_id único
             run_id = uuid.uuid4().hex
+            st.session_state['run_id'] = run_id  # Armazena no session_state
 
             st.write("Iniciando o treinamento supervisionado...")
             model_data = train_model(
@@ -1217,7 +1221,8 @@ def main():
                 return
 
             model, classes = model_data
-            # O modelo e as classes já estão armazenados no st.session_state
+            st.session_state['model'] = model
+            st.session_state['classes'] = classes
             st.success("Treinamento concluído!")
 
             # Opção para baixar o modelo treinado com run_id no nome do arquivo
@@ -1306,8 +1311,10 @@ def main():
                 if segmentation_model is not None:
                     segmentation = st.checkbox("Visualizar Segmentação", value=True, key="segmentation_checkbox")
 
+                # Recuperar run_id da sessão
+                run_id = st.session_state.get('run_id', 'default_run')
+
                 # Visualizar ativações e segmentação
-                model_name_for_visualization = st.session_state.get('trained_model_name', model_name)
                 visualize_activations(st.session_state['model'], eval_image, st.session_state['classes'], model_name_for_visualization, run_id, segmentation_model=segmentation_model, segmentation=segmentation)
             else:
                 st.error("Modelo ou classes não carregados. Por favor, carregue um modelo ou treine um novo modelo.")

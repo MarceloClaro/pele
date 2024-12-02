@@ -593,7 +593,9 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
             except Exception as e:
                 logging.error(f"Erro durante o treinamento: {e}")
                 st.error(f"Erro durante o treinamento: {e}")
-                del model  # Liberar recursos
+                # Liberar recursos apenas se 'model' estiver definido
+                if 'model' in locals():
+                    del model
                 torch.cuda.empty_cache()
                 return None
 
@@ -685,6 +687,11 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
         model.load_state_dict(best_model_wts)
         logging.info("Melhores pesos do modelo carregados após o treinamento.")
 
+    # Armazenar o modelo e as classes no st.session_state antes de deletar 'model'
+    st.session_state['model'] = model
+    st.session_state['classes'] = full_dataset.classes
+    st.session_state['trained_model_name'] = model_name  # Armazena o nome do modelo treinado
+
     # Liberar recursos após o treinamento para evitar OOM
     del model
     torch.cuda.empty_cache()
@@ -701,23 +708,18 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
 
     # Avaliação Final no Conjunto de Teste
     st.write("**Avaliação no Conjunto de Teste**")
-    metrics = compute_metrics(model, test_loader, full_dataset.classes, model_name, run_id)
+    metrics = compute_metrics(st.session_state['model'], test_loader, full_dataset.classes, model_name, run_id)
 
     # Análise de Erros
     st.write("**Análise de Erros**")
-    error_analysis(model, test_loader, full_dataset.classes, model_name, run_id)
+    error_analysis(st.session_state['model'], test_loader, full_dataset.classes, model_name, run_id)
 
     # Clusterização e Análise Comparativa
     st.write("**Análise de Clusterização**")
-    perform_clustering(model, test_loader, full_dataset.classes, model_name, run_id)
-
-    # Armazenar o modelo e as classes no st.session_state
-    st.session_state['model'] = model
-    st.session_state['classes'] = full_dataset.classes
-    st.session_state['trained_model_name'] = model_name  # Armazena o nome do modelo treinado
+    perform_clustering(st.session_state['model'], test_loader, full_dataset.classes, model_name, run_id)
 
     logging.info(f"Treinamento do modelo {model_name}, Execução {run_id} concluído.")
-    return model, full_dataset.classes, metrics
+    return st.session_state['model'], full_dataset.classes, metrics
 
 
 def plot_metrics(train_losses, valid_losses, train_accuracies, valid_accuracies, model_name, run_id):

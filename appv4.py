@@ -1,4 +1,4 @@
-import os 
+import os
 import zipfile
 import shutil
 import tempfile
@@ -344,7 +344,6 @@ def visualize_embeddings(df, class_names):
     plt.xlabel('Componente Principal 1')
     plt.ylabel('Componente Principal 2')
 
-    # Salvar o plot
     plt.tight_layout()
     plt.savefig("embeddings_pca.png")
     st.image("embeddings_pca.png", caption='Visualização dos Embeddings com PCA', use_container_width=True)
@@ -391,7 +390,7 @@ def train_model(train_loader, valid_loader, test_loader, num_classes, model_name
     st.table(config_df)
 
     # Salvar configurações em arquivo JSON
-    config_filename = f'config_{model_name}.json'
+    config_filename = f'config_{model_name}_{run_id}.json'
     with open(config_filename, 'w') as f:
         json.dump(config, f, indent=4)
     st.write(f"Configurações salvas como `{config_filename}`")
@@ -404,7 +403,7 @@ def train_model(train_loader, valid_loader, test_loader, num_classes, model_name
             data=file,
             file_name=config_filename,
             mime="application/json",
-            key=f"download_config_{model_name}_{unique_id}"
+            key=f"download_config_{model_name}_{run_id}_{unique_id}"
         )
     if btn:
         st.success("Configurações baixadas com sucesso!")
@@ -540,18 +539,18 @@ def train_model(train_loader, valid_loader, test_loader, num_classes, model_name
                 ax[1].legend()
 
                 plt.tight_layout()
-                plt.savefig(f'loss_accuracy_{model_name}.png')
-                st.image(f'loss_accuracy_{model_name}.png', caption='Perda e Acurácia por Época', use_container_width=True)
+                plt.savefig(f'loss_accuracy_{model_name}_{run_id}.png')
+                st.image(f'loss_accuracy_{model_name}_{run_id}.png', caption='Perda e Acurácia por Época', use_container_width=True)
 
                 # Disponibilizar para download com chave única por época
                 unique_id = uuid.uuid4()
-                with open(f'loss_accuracy_{model_name}.png', "rb") as file:
+                with open(f'loss_accuracy_{model_name}_{run_id}.png', "rb") as file:
                     btn = st.download_button(
                         label="Download do Gráfico de Perda e Acurácia (Atualizado)",
                         data=file,
-                        file_name=f'loss_accuracy_{model_name}.png',
+                        file_name=f'loss_accuracy_{model_name}_{run_id}.png',
                         mime="image/png",
-                        key=f"download_loss_accuracy_{model_name}_{unique_id}"
+                        key=f"download_loss_accuracy_{model_name}_{run_id}_{unique_id}"
                     )
                 if btn:
                     st.success("Gráfico de perda e acurácia baixado com sucesso!")
@@ -1164,7 +1163,8 @@ def perform_statistical_analysis():
     Realiza ANOVA e Teste de Tukey HSD nas métricas de treinamento armazenadas.
     """
     if 'all_model_metrics' not in st.session_state or len(st.session_state['all_model_metrics']) < 2:
-        st.sidebar.write("**Análise Estatística:** N/A (Necessita de pelo menos 2 treinamentos).")
+        st.sidebar.markdown("### Análise Estatística")
+        st.sidebar.write("**ANOVA e Teste de Tukey HSD não disponíveis.** (Necessita de pelo menos 2 treinamentos)")
         return
 
     st.sidebar.markdown("### Análise Estatística (ANOVA e Tukey HSD)")
@@ -1177,38 +1177,60 @@ def perform_statistical_analysis():
                                           options=['Accuracy', 'Precision', 'Recall', 'F1_Score', 'ROC_AUC'])
 
     if st.sidebar.button("Executar Análise Estatística"):
+        # Agrupar por Model
+        groups = metrics_df.groupby('Model')[selected_metric].apply(list)
+
+        # Verificar o número de grupos
+        if len(groups) < 2:
+            st.sidebar.write("**ANOVA não pode ser realizada:** Necessita de pelo menos dois modelos diferentes.")
+            return
+
+        # Verificar se cada grupo possui pelo menos uma amostra
+        if any(len(group) < 1 for group in groups):
+            st.sidebar.write("**ANOVA não pode ser realizada:** Alguns grupos não possuem amostras suficientes.")
+            return
+
+        # Verificar se há variação suficiente para ANOVA
+        if metrics_df[selected_metric].nunique() < 2:
+            st.sidebar.write("**ANOVA não pode ser realizada:** A métrica selecionada não possui variação suficiente.")
+            return
+
         # Realizar ANOVA
-        anova_result = stats.f_oneway(*(metrics_df[metrics_df['Model'] == model][selected_metric] for model in metrics_df['Model'].unique()))
-        st.sidebar.write("**Resultado da ANOVA:**")
-        st.sidebar.write(f"F-Statistic: {anova_result.statistic:.4f}, p-value: {anova_result.pvalue:.4f}")
+        try:
+            anova_result = stats.f_oneway(*groups)
+            st.sidebar.write("**Resultado da ANOVA:**")
+            st.sidebar.write(f"F-Statistic: {anova_result.statistic:.4f}, p-value: {anova_result.pvalue:.4f}")
 
-        if anova_result.pvalue < 0.05:
-            st.sidebar.write("**Conclusão:** Há diferenças significativas entre os grupos.")
-            # Realizar Teste de Tukey HSD
-            tukey = pairwise_tukeyhsd(endog=metrics_df[selected_metric], groups=metrics_df['Model'], alpha=0.05)
-            st.sidebar.write("**Resultado do Teste de Tukey HSD:**")
-            st.sidebar.write(tukey.summary())
-            
-            # Salvar o resultado do Tukey HSD
-            tukey_filename = f'tukey_hsd_{selected_metric}.csv'
-            tukey_df = pd.DataFrame(data=tukey.summary().data[1:], columns=tukey.summary().data[0])
-            tukey_df.to_csv(tukey_filename, index=False)
-            st.sidebar.write(f"Teste de Tukey HSD salvo como `{tukey_filename}`")
+            if anova_result.pvalue < 0.05:
+                st.sidebar.write("**Conclusão:** Há diferenças significativas entre os grupos.")
 
-            # Disponibilizar para download do Tukey HSD
-            unique_id_tukey = uuid.uuid4()
-            with open(tukey_filename, "rb") as file:
-                btn_tukey = st.sidebar.download_button(
-                    label="Download do Teste de Tukey HSD",
-                    data=file,
-                    file_name=tukey_filename,
-                    mime="text/csv",
-                    key=f"download_tukey_hsd_{selected_metric}_{unique_id_tukey}"
-                )
-            if btn_tukey:
-                st.sidebar.success("Teste de Tukey HSD baixado com sucesso!")
-        else:
-            st.sidebar.write("**Conclusão:** Não há diferenças significativas entre os grupos.")
+                # Realizar Teste de Tukey HSD
+                tukey = pairwise_tukeyhsd(endog=metrics_df[selected_metric], groups=metrics_df['Model'], alpha=0.05)
+                st.sidebar.write("**Resultado do Teste de Tukey HSD:**")
+                st.sidebar.write(tukey.summary())
+
+                # Salvar o resultado do Tukey HSD
+                tukey_filename = f'tukey_hsd_{selected_metric}.csv'
+                tukey_df = pd.DataFrame(data=tukey.summary().data[1:], columns=tukey.summary().data[0])
+                tukey_df.to_csv(tukey_filename, index=False)
+                st.sidebar.write(f"Teste de Tukey HSD salvo como `{tukey_filename}`")
+
+                # Disponibilizar para download do Tukey HSD
+                unique_id_tukey = uuid.uuid4()
+                with open(tukey_filename, "rb") as file:
+                    btn_tukey = st.sidebar.download_button(
+                        label="Download do Teste de Tukey HSD",
+                        data=file,
+                        file_name=tukey_filename,
+                        mime="text/csv",
+                        key=f"download_tukey_hsd_{selected_metric}_{unique_id_tukey}"
+                    )
+                if btn_tukey:
+                    st.sidebar.success("Teste de Tukey HSD baixado com sucesso!")
+            else:
+                st.sidebar.write("**Conclusão:** Não há diferenças significativas entre os grupos.")
+        except Exception as e:
+            st.sidebar.write(f"**Erro durante a ANOVA:** {e}")
 
 def main():
     # Definir o caminho do ícone
@@ -1378,10 +1400,11 @@ def main():
                         return
                 except Exception as e:
                     st.error(f"Erro ao carregar as classes: {e}")
+
     elif model_option == "Treinar um novo modelo":
         # Upload do arquivo ZIP
         zip_file_single = st.file_uploader("Upload do arquivo ZIP com as imagens", type=["zip"], key="zip_file_uploader_single")
-        if zip_file_single is not None and train_split + valid_split <= 0.95:
+        if zip_file_single is not None and (train_split + valid_split) <= 0.95:
             try:
                 temp_dir = tempfile.mkdtemp()
                 zip_path = os.path.join(temp_dir, "uploaded.zip")
@@ -1621,65 +1644,6 @@ def main():
 
     # Encerrar a aplicação
     st.write("Obrigado por utilizar o aplicativo!")
-
-def perform_statistical_analysis():
-    """
-    Realiza ANOVA e Teste de Tukey HSD nas métricas de treinamento armazenadas.
-    """
-    if 'all_model_metrics' not in st.session_state or len(st.session_state['all_model_metrics']) < 2:
-        st.sidebar.markdown("### Análise Estatística")
-        st.sidebar.write("**ANOVA e Teste de Tukey HSD não disponíveis.** (Necessita de pelo menos 2 treinamentos)")
-        return
-
-    st.sidebar.markdown("### Análise Estatística (ANOVA e Tukey HSD)")
-
-    # Converter as métricas armazenadas em um DataFrame
-    metrics_df = pd.DataFrame(st.session_state['all_model_metrics'])
-
-    # Selecionar as métricas para análise
-    selected_metric = st.sidebar.selectbox("Selecione a Métrica para ANOVA:", 
-                                          options=['Accuracy', 'Precision', 'Recall', 'F1_Score', 'ROC_AUC'])
-
-    if st.sidebar.button("Executar Análise Estatística"):
-        # Verificar se há variação suficiente para ANOVA
-        if metrics_df[selected_metric].nunique() < 2:
-            st.sidebar.write("**ANOVA não pode ser realizada:** A métrica selecionada não possui variação suficiente.")
-            return
-
-        # Realizar ANOVA
-        groups = metrics_df.groupby('Model')[selected_metric].apply(list)
-        anova_result = stats.f_oneway(*groups)
-        st.sidebar.write("**Resultado da ANOVA:**")
-        st.sidebar.write(f"F-Statistic: {anova_result.statistic:.4f}, p-value: {anova_result.pvalue:.4f}")
-
-        if anova_result.pvalue < 0.05:
-            st.sidebar.write("**Conclusão:** Há diferenças significativas entre os grupos.")
-
-            # Realizar Teste de Tukey HSD
-            tukey = pairwise_tukeyhsd(endog=metrics_df[selected_metric], groups=metrics_df['Model'], alpha=0.05)
-            st.sidebar.write("**Resultado do Teste de Tukey HSD:**")
-            st.sidebar.write(tukey.summary())
-
-            # Salvar o resultado do Tukey HSD
-            tukey_filename = f'tukey_hsd_{selected_metric}.csv'
-            tukey_df = pd.DataFrame(data=tukey.summary().data[1:], columns=tukey.summary().data[0])
-            tukey_df.to_csv(tukey_filename, index=False)
-            st.sidebar.write(f"Teste de Tukey HSD salvo como `{tukey_filename}`")
-
-            # Disponibilizar para download do Tukey HSD
-            unique_id_tukey = uuid.uuid4()
-            with open(tukey_filename, "rb") as file:
-                btn_tukey = st.sidebar.download_button(
-                    label="Download do Teste de Tukey HSD",
-                    data=file,
-                    file_name=tukey_filename,
-                    mime="text/csv",
-                    key=f"download_tukey_hsd_{selected_metric}_{unique_id_tukey}"
-                )
-            if btn_tukey:
-                st.sidebar.success("Teste de Tukey HSD baixado com sucesso!")
-        else:
-            st.sidebar.write("**Conclusão:** Não há diferenças significativas entre os grupos.")
 
 if __name__ == "__main__":
     main()

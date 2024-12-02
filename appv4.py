@@ -1,8 +1,8 @@
 import os
 import zipfile
 import random
-import json
 import tempfile
+import json
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -37,12 +37,14 @@ from scipy import stats
 # Supressão dos avisos relacionados ao torch.classes
 warnings.filterwarnings("ignore", category=UserWarning, message=".*torch.classes.*")
 
+# Configuração do logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s:%(message)s')
+
 # Definir o dispositivo (CPU ou GPU)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Configurações para tornar os gráficos mais bonitos
 sns.set_style('whitegrid')
-
 
 def set_seed(seed):
     """
@@ -56,7 +58,6 @@ def set_seed(seed):
     # As linhas abaixo são recomendadas para garantir reprodutibilidade
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
-
 
 set_seed(42)  # Definir a seed para reprodutibilidade
 
@@ -82,7 +83,6 @@ test_transforms = transforms.Compose([
     transforms.ToTensor(),
 ])
 
-
 # Dataset personalizado para classificação
 class CustomDataset(torch.utils.data.Dataset):
     def __init__(self, dataset, transform=None):
@@ -98,7 +98,6 @@ class CustomDataset(torch.utils.data.Dataset):
             image = self.transform(image)
         return image, label
 
-
 def seed_worker(worker_id):
     """
     Função para definir a seed em cada worker do DataLoader.
@@ -106,7 +105,6 @@ def seed_worker(worker_id):
     worker_seed = torch.initial_seed() % 2**32
     np.random.seed(worker_seed)
     random.seed(worker_seed)
-
 
 def visualize_data(dataset, classes):
     """
@@ -124,7 +122,7 @@ def visualize_data(dataset, classes):
     plt.tight_layout()
     visualize_data_filename = "visualize_data.png"
     plt.savefig(visualize_data_filename)
-    st.image(visualize_data_filename, caption='Exemplos do Conjunto de Dados')
+    st.image(visualize_data_filename, caption='Exemplos do Conjunto de Dados', use_container_width=True)
 
     # Disponibilizar para download
     with open(visualize_data_filename, "rb") as file:
@@ -136,7 +134,6 @@ def visualize_data(dataset, classes):
         )
     if btn:
         st.success("Visualização de dados baixada com sucesso!")
-
 
 def plot_class_distribution(dataset, classes):
     """
@@ -171,7 +168,7 @@ def plot_class_distribution(dataset, classes):
     plt.tight_layout()
     class_distribution_filename = "class_distribution.png"
     plt.savefig(class_distribution_filename)
-    st.image(class_distribution_filename, caption='Distribuição das Classes')
+    st.image(class_distribution_filename, caption='Distribuição das Classes', use_container_width=True)
 
     # Disponibilizar para download
     with open(class_distribution_filename, "rb") as file:
@@ -183,7 +180,6 @@ def plot_class_distribution(dataset, classes):
         )
     if btn:
         st.success("Distribuição das classes baixada com sucesso!")
-
 
 def get_model(model_name, num_classes, dropout_p=0.5, fine_tune=False):
     """
@@ -200,6 +196,7 @@ def get_model(model_name, num_classes, dropout_p=0.5, fine_tune=False):
         model = densenet121(weights=weights)
     else:
         st.error("Modelo não suportado.")
+        logging.error(f"Modelo não suportado: {model_name}")
         return None
 
     if not fine_tune:
@@ -220,11 +217,12 @@ def get_model(model_name, num_classes, dropout_p=0.5, fine_tune=False):
         )
     else:
         st.error("Modelo não suportado.")
+        logging.error(f"Modelo não suportado na camada final: {model_name}")
         return None
 
     model = model.to(device)
+    logging.info(f"Modelo {model_name} carregado e configurado para {num_classes} classes.")
     return model
-
 
 def apply_transforms_and_get_embeddings(dataset, model, transform, batch_size=16):
     """
@@ -277,7 +275,6 @@ def apply_transforms_and_get_embeddings(dataset, model, transform, batch_size=16
 
     return df
 
-
 def display_all_augmented_images(df, class_names, max_images=None):
     """
     Exibe todas as imagens augmentadas do DataFrame de forma organizada e adiciona botões de download para as imagens.
@@ -306,7 +303,7 @@ def display_all_augmented_images(df, class_names, max_images=None):
                 with cols[col]:
                     image_filename = f'augmented_image_{idx}.png'
                     Image.fromarray((image * 255).astype(np.uint8)).save(image_filename)
-                    st.image(image_filename, caption=class_names[label], use_column_width=True)
+                    st.image(image_filename, caption=class_names[label], use_container_width=True)
 
                     # Botão de download para a imagem
                     with open(image_filename, "rb") as file:
@@ -319,7 +316,6 @@ def display_all_augmented_images(df, class_names, max_images=None):
                         )
                     if btn:
                         st.success(f"Imagem {idx} baixada com sucesso!")
-
 
 def visualize_embeddings(df, class_names):
     """
@@ -353,7 +349,7 @@ def visualize_embeddings(df, class_names):
     plt.tight_layout()
     embeddings_pca_filename = "embeddings_pca.png"
     plt.savefig(embeddings_pca_filename)
-    st.image(embeddings_pca_filename, caption='Visualização dos Embeddings com PCA')
+    st.image(embeddings_pca_filename, caption='Visualização dos Embeddings com PCA', use_container_width=True)
 
     # Disponibilizar para download
     with open(embeddings_pca_filename, "rb") as file:
@@ -366,27 +362,27 @@ def visualize_embeddings(df, class_names):
     if btn:
         st.success("Visualização dos embeddings baixada com sucesso!")
 
-
 def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_rate, batch_size, train_split, valid_split, use_weighted_loss, l2_lambda, patience, model_id=None, run_id=None):
     """
     Função principal para treinamento do modelo de classificação.
     """
     set_seed(42)
+    logging.info(f"Iniciando o treinamento do modelo {model_name}, Execução {run_id}")
 
     # Exibir as configurações técnicas do modelo
     st.subheader(f"Treinamento do {model_name} - Execução {run_id}")
     st.write("**Configurações Técnicas:**")
     config = {
         'Modelo': model_name,
-        'Fine-Tuning Completo': fine_tune,
-        'Épocas': epochs,
-        'Taxa de Aprendizagem': learning_rate,
-        'Tamanho do Lote': batch_size,
-        'Train Split': train_split,
-        'Valid Split': valid_split,
-        'L2 Regularization': l2_lambda,
-        'Paciência Early Stopping': patience,
-        'Use Weighted Loss': use_weighted_loss
+        'Fine-Tuning Completo': str(fine_tune),
+        'Épocas': str(epochs),
+        'Taxa de Aprendizagem': str(learning_rate),
+        'Tamanho de Lote': str(batch_size),
+        'Train Split': str(train_split),
+        'Valid Split': str(valid_split),
+        'L2 Regularization': str(l2_lambda),
+        'Paciência Early Stopping': str(patience),
+        'Use Weighted Loss': str(use_weighted_loss)
     }
     config_df = pd.DataFrame(list(config.items()), columns=['Parâmetro', 'Valor'])
     st.table(config_df)
@@ -420,6 +416,7 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
     # Verificar se há classes suficientes
     if len(full_dataset.classes) < num_classes:
         st.error(f"O número de classes encontradas ({len(full_dataset.classes)}) é menor do que o número especificado ({num_classes}).")
+        logging.error(f"Classes insuficientes: {len(full_dataset.classes)} encontradas, {num_classes} necessárias.")
         return None
 
     # Exibir dados
@@ -441,6 +438,7 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
     # Verificar se há dados suficientes em cada conjunto
     if len(train_indices) == 0 or len(valid_indices) == 0 or len(test_indices) == 0:
         st.error("Divisão dos dados resultou em um conjunto vazio. Ajuste os percentuais de divisão.")
+        logging.error("Divisão dos dados inválida: algum conjunto está vazio.")
         return None
 
     # Criar datasets para treino, validação e teste
@@ -509,8 +507,10 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
         class_weights = 1.0 / class_counts
         class_weights = torch.FloatTensor(class_weights).to(device)
         criterion = nn.CrossEntropyLoss(weight=class_weights)
+        logging.info("Perda ponderada utilizada para classes desbalanceadas.")
     else:
         criterion = nn.CrossEntropyLoss()
+        logging.info("Perda não ponderada utilizada.")
 
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, worker_init_fn=seed_worker, generator=g)
     valid_loader = DataLoader(valid_dataset, batch_size=batch_size, shuffle=False, worker_init_fn=seed_worker, generator=g)
@@ -523,6 +523,7 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
 
     # Definir o otimizador com L2 regularization (weight_decay)
     optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=learning_rate, weight_decay=l2_lambda)
+    logging.info(f"Otimizer Adam configurado com lr={learning_rate} e weight_decay={l2_lambda}.")
 
     # Inicializar as listas de perdas e acurácias no st.session_state com chaves únicas
     train_losses_key = f"train_losses_{model_id}_{run_id}"
@@ -565,6 +566,7 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
             try:
                 outputs = model(inputs)
             except Exception as e:
+                logging.error(f"Erro durante o treinamento: {e}")
                 st.error(f"Erro durante o treinamento: {e}")
                 return None
 
@@ -626,7 +628,7 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
             plt.tight_layout()
             loss_accuracy_filename = f'loss_accuracy_{model_name}_run{run_id}.png'
             plt.savefig(loss_accuracy_filename)
-            st.image(loss_accuracy_filename, caption='Perda e Acurácia por Época')
+            st.image(loss_accuracy_filename, caption='Perda e Acurácia por Época', use_container_width=True)
 
             # Disponibilizar para download
             with open(loss_accuracy_filename, "rb") as file:
@@ -642,7 +644,6 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
 
             plt.close(fig)  # Removido conforme instrução
 
-
         # Atualizar texto de progresso
         progress = (epoch + 1) / epochs
         progress_bar.progress(progress)
@@ -653,10 +654,13 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
             best_valid_loss = valid_epoch_loss
             epochs_no_improve = 0
             best_model_wts = model.state_dict()
+            logging.info(f"Melhor perda de validação atualizada para {best_valid_loss:.4f}.")
         else:
             epochs_no_improve += 1
+            logging.info(f"Número de épocas sem melhoria: {epochs_no_improve}.")
             if epochs_no_improve >= patience:
                 st.write('Early stopping!')
+                logging.info("Early stopping acionado.")
                 if best_model_wts is not None:
                     model.load_state_dict(best_model_wts)
                 break
@@ -664,6 +668,7 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
     # Carregar os melhores pesos do modelo se houver
     if best_model_wts is not None:
         model.load_state_dict(best_model_wts)
+        logging.info("Melhores pesos do modelo carregados após o treinamento.")
 
     # Gráficos de Perda e Acurácia finais
     plot_metrics(
@@ -692,8 +697,8 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
     st.session_state['classes'] = full_dataset.classes
     st.session_state['trained_model_name'] = model_name  # Armazena o nome do modelo treinado
 
+    logging.info(f"Treinamento do modelo {model_name}, Execução {run_id} concluído.")
     return model, full_dataset.classes, metrics
-
 
 def plot_metrics(train_losses, valid_losses, train_accuracies, valid_accuracies, model_name, run_id):
     """
@@ -721,7 +726,7 @@ def plot_metrics(train_losses, valid_losses, train_accuracies, valid_accuracies,
     plt.tight_layout()
     plot_filename = f'loss_accuracy_final_{model_name}_run{run_id}.png'
     fig.savefig(plot_filename)
-    st.image(plot_filename, caption='Perda e Acurácia Finais')
+    st.image(plot_filename, caption='Perda e Acurácia Finais', use_container_width=True)
 
     # Disponibilizar para download
     with open(plot_filename, "rb") as file:
@@ -736,7 +741,6 @@ def plot_metrics(train_losses, valid_losses, train_accuracies, valid_accuracies,
         st.success("Gráficos de Perda e Acurácia Finais baixados com sucesso!")
 
     plt.close(fig)  # Removido conforme instrução
-
 
 def compute_metrics(model, dataloader, classes, model_name, run_id):
     """
@@ -793,7 +797,7 @@ def compute_metrics(model, dataloader, classes, model_name, run_id):
     plt.tight_layout()
     cm_filename = f'confusion_matrix_{model_name}_run{run_id}.png'
     fig.savefig(cm_filename)
-    st.image(cm_filename, caption='Matriz de Confusão Normalizada')
+    st.image(cm_filename, caption='Matriz de Confusão Normalizada', use_container_width=True)
 
     # Disponibilizar para download
     with open(cm_filename, "rb") as file:
@@ -822,7 +826,7 @@ def compute_metrics(model, dataloader, classes, model_name, run_id):
         plt.tight_layout()
         roc_filename = f'roc_curve_{model_name}_run{run_id}.png'
         fig.savefig(roc_filename)
-        st.image(roc_filename, caption='Curva ROC')
+        st.image(roc_filename, caption='Curva ROC', use_container_width=True)
 
         # Disponibilizar para download
         with open(roc_filename, "rb") as file:
@@ -897,7 +901,6 @@ def compute_metrics(model, dataloader, classes, model_name, run_id):
 
     return metrics
 
-
 def error_analysis(model, dataloader, classes, model_name, run_id):
     """
     Realiza análise de erros mostrando algumas imagens mal classificadas e adiciona botões de download para as imagens.
@@ -934,7 +937,7 @@ def error_analysis(model, dataloader, classes, model_name, run_id):
         plt.tight_layout()
         misclassified_filename = f'misclassified_{model_name}_run{run_id}.png'
         plt.savefig(misclassified_filename)
-        st.image(misclassified_filename, caption='Exemplos de Erros de Classificação')
+        st.image(misclassified_filename, caption='Exemplos de Erros de Classificação', use_container_width=True)
 
         # Disponibilizar para download
         with open(misclassified_filename, "rb") as file:
@@ -949,7 +952,6 @@ def error_analysis(model, dataloader, classes, model_name, run_id):
             st.success("Imagens mal classificadas baixadas com sucesso!")
     else:
         st.write("Nenhuma imagem mal classificada encontrada.")
-
 
 def perform_clustering(model, dataloader, classes, model_name, run_id):
     """
@@ -1008,7 +1010,7 @@ def perform_clustering(model, dataloader, classes, model_name, run_id):
     plt.tight_layout()
     clustering_filename = f'clustering_{model_name}_run{run_id}.png'
     fig.savefig(clustering_filename)
-    st.image(clustering_filename, caption='Resultados da Clusterização')
+    st.image(clustering_filename, caption='Resultados da Clusterização', use_container_width=True)
 
     # Disponibilizar para download
     with open(clustering_filename, "rb") as file:
@@ -1057,7 +1059,6 @@ def perform_clustering(model, dataloader, classes, model_name, run_id):
     if btn:
         st.success("Métricas de clusterização baixadas com sucesso!")
 
-
 def evaluate_image(model, image, classes):
     """
     Avalia uma única imagem e retorna a classe predita e a confiança.
@@ -1070,7 +1071,6 @@ def evaluate_image(model, image, classes):
     class_idx = predicted.item()
     class_name = classes[class_idx]
     return class_name, confidence.item()
-
 
 def visualize_activations(model, image, class_names, model_name, run_id):
     """
@@ -1086,6 +1086,7 @@ def visualize_activations(model, image, class_names, model_name, run_id):
         target_layer = 'features.denseblock4'
     else:
         st.error("Modelo não suportado para Grad-CAM.")
+        logging.error(f"Modelo não suportado para Grad-CAM: {model_name}")
         return
 
     # Criar o objeto CAM usando torchcam
@@ -1124,7 +1125,7 @@ def visualize_activations(model, image, class_names, model_name, run_id):
     plt.tight_layout()
     activation_filename = f'grad_cam_{model_name}_run{run_id}.png'
     fig.savefig(activation_filename)
-    st.image(activation_filename, caption='Visualização de Grad-CAM')
+    st.image(activation_filename, caption='Visualização de Grad-CAM', use_container_width=True)
 
     # Disponibilizar para download
     with open(activation_filename, "rb") as file:
@@ -1143,14 +1144,12 @@ def visualize_activations(model, image, class_names, model_name, run_id):
 
     plt.close(fig)  # Removido conforme instrução
 
-
 def perform_anova(data, groups):
     """
     Realiza a análise ANOVA para comparar as médias entre diferentes grupos.
     """
     f_val, p_val = stats.f_oneway(*[data[groups == group] for group in np.unique(groups)])
     return f_val, p_val
-
 
 def visualize_anova_results(f_val, p_val):
     """
@@ -1161,7 +1160,6 @@ def visualize_anova_results(f_val, p_val):
         st.write("Os resultados são estatisticamente significativos.")
     else:
         st.write("Os resultados não são estatisticamente significativos.")
-
 
 def main():
     # Definir o caminho do ícone
@@ -1205,6 +1203,12 @@ def main():
     # Inicializar 'all_model_metrics' no session_state se ainda não existir
     if 'all_model_metrics' not in st.session_state:
         st.session_state['all_model_metrics'] = []
+
+    # Exibir as versões das bibliotecas para verificação
+    st.sidebar.write("**Versões das Bibliotecas:**")
+    st.sidebar.write(f"PyTorch: {torch.__version__}")
+    st.sidebar.write(f"Torchvision: {torchvision.__version__}")
+    st.sidebar.write(f"TorchCAM: {torchcam.__version__}")
 
     # Barra Lateral de Configurações
     st.sidebar.title("Configurações do Treinamento")
@@ -1279,6 +1283,7 @@ def main():
 
         if len(model_list) == 0:
             st.error("Por favor, selecione pelo menos um modelo para treinar.")
+            logging.error("Nenhum modelo selecionado para treinamento.")
             return
 
         # Inicializar lista para armazenar modelos treinados
@@ -1286,6 +1291,7 @@ def main():
 
         if zip_file is None:
             st.error("Por favor, faça upload do arquivo ZIP com as imagens.")
+            logging.error("Arquivo ZIP não foi feito upload.")
         else:
             try:
                 temp_dir = tempfile.mkdtemp()
@@ -1295,6 +1301,7 @@ def main():
                 with zipfile.ZipFile(zip_path, 'r') as zip_ref:
                     zip_ref.extractall(temp_dir)
                 data_dir = temp_dir
+                logging.info(f"Arquivo ZIP extraído para {data_dir}.")
 
                 for i, model_name in enumerate(model_list):
                     for run in range(1, runs_per_model + 1):
@@ -1310,11 +1317,13 @@ def main():
 
                         if model_data is None:
                             st.error(f"Erro no treinamento do Modelo {i+1}, Execução {run}.")
+                            logging.error(f"Erro no treinamento do Modelo {model_name}, Execução {run}.")
                             continue
 
                         model, classes, metrics = model_data
                         st.session_state['all_model_metrics'].append(metrics)
                         st.success(f"Treinamento do Modelo {i+1} ({model_name}), Execução {run} concluído!")
+                        logging.info(f"Treinamento do Modelo {model_name}, Execução {run} concluído com sucesso.")
 
                         # Armazenar o modelo treinado na lista
                         trained_models.append({
@@ -1328,6 +1337,7 @@ def main():
                         model_filename = f'{model_name}_run{run}.pth'
                         torch.save(model.state_dict(), model_filename)
                         st.write(f"Modelo salvo como `{model_filename}`")
+                        logging.info(f"Modelo salvo como {model_filename}.")
 
                         # Disponibilizar para download do modelo
                         with open(model_filename, "rb") as file:
@@ -1340,6 +1350,7 @@ def main():
                             )
                         if btn:
                             st.success(f"Modelo {model_name}_run{run} baixado com sucesso!")
+                            logging.info(f"Modelo {model_name}_run{run} baixado com sucesso.")
 
                         # Salvar as classes em um arquivo
                         classes_data = "\n".join(classes)
@@ -1347,6 +1358,7 @@ def main():
                         with open(classes_filename, 'w') as f:
                             f.write(classes_data)
                         st.write(f"Classes salvas como `{classes_filename}`")
+                        logging.info(f"Classes salvas como {classes_filename}.")
 
                         # Disponibilizar para download das classes
                         with open(classes_filename, "rb") as file:
@@ -1359,12 +1371,14 @@ def main():
                             )
                         if btn:
                             st.success(f"Classes {model_name}_run{run} baixadas com sucesso!")
+                            logging.info(f"Classes {model_name}_run{run} baixadas com sucesso.")
 
                         # Salvar métricas em arquivo CSV
                         metrics_df = pd.DataFrame([metrics])
                         metrics_filename = f'metrics_{model_name}_run{run}.csv'
                         metrics_df.to_csv(metrics_filename, index=False)
                         st.write(f"Métricas salvas como `{metrics_filename}`")
+                        logging.info(f"Métricas salvas como {metrics_filename}.")
 
                         # Disponibilizar para download das métricas
                         with open(metrics_filename, "rb") as file:
@@ -1377,6 +1391,7 @@ def main():
                             )
                         if btn:
                             st.success(f"Métricas {model_name}_run{run} baixadas com sucesso!")
+                            logging.info(f"Métricas {model_name}_run{run} baixadas com sucesso!")
 
                         # Removido a limpeza de cache e memória conforme instrução
 
@@ -1392,6 +1407,7 @@ def main():
                     all_metrics_filename = 'all_model_metrics.csv'
                     metrics_df.to_csv(all_metrics_filename, index=False)
                     st.write(f"Métricas de todos os modelos salvas como `{all_metrics_filename}`")
+                    logging.info(f"Métricas de todos os modelos salvas como {all_metrics_filename}.")
 
                     # Disponibilizar para download das métricas coletadas
                     with open(all_metrics_filename, "rb") as file:
@@ -1404,6 +1420,7 @@ def main():
                         )
                     if btn:
                         st.success("Métricas de todos os modelos baixadas com sucesso!")
+                        logging.info("Métricas de todos os modelos baixadas com sucesso.")
 
                     # Calcular Intervalos de Confiança para Cada Métrica
                     st.subheader("Intervalos de Confiança para as Métricas de Desempenho")
@@ -1452,6 +1469,7 @@ def main():
                             with open(tukey_filename, 'w') as f:
                                 f.write(tukey_summary)
                             st.write(f"Resumo do Teste Tukey HSD salvo como `{tukey_filename}`")
+                            logging.info(f"Resumo do Teste Tukey HSD salvo como {tukey_filename}.")
 
                             # Disponibilizar para download do resumo do Tukey
                             with open(tukey_filename, "rb") as file:
@@ -1464,12 +1482,13 @@ def main():
                                 )
                             if btn:
                                 st.success(f"Resumo Tukey para {metric} baixado com sucesso!")
+                                logging.info(f"Resumo Tukey para {metric} baixado com sucesso.")
                         else:
                             st.write(f"**{metric}:** Teste Tukey HSD não pode ser realizado. É necessário pelo menos dois modelos com pelo menos duas observações cada.")
 
             except Exception as e:
                 st.error(f"Erro durante o treinamento múltiplo: {e}")
-
+                logging.error(f"Erro durante o treinamento múltiplo: {e}")
 
     # Opções de carregamento do modelo
     st.header("Opções de Carregamento do Modelo")
@@ -1485,6 +1504,7 @@ def main():
             model = get_model(model_name, num_classes, dropout_p=0.5, fine_tune=False)
             if model is None:
                 st.error("Erro ao carregar o modelo.")
+                logging.error("Erro ao carregar o modelo.")
                 return
 
             # Carregar os pesos do modelo
@@ -1494,8 +1514,10 @@ def main():
                 st.session_state['model'] = model
                 st.session_state['trained_model_name'] = model_name  # Armazena o nome do modelo treinado
                 st.success("Modelo carregado com sucesso!")
+                logging.info(f"Modelo {model_name} carregado com sucesso.")
             except Exception as e:
                 st.error(f"Erro ao carregar o modelo: {e}")
+                logging.error(f"Erro ao carregar o modelo: {e}")
                 return
 
             # Carregar as classes
@@ -1505,11 +1527,13 @@ def main():
                     classes = classes_file.read().decode("utf-8").splitlines()
                     st.session_state['classes'] = classes
                     st.write(f"Classes carregadas: {classes}")
+                    logging.info(f"Classes carregadas: {classes}")
                 except Exception as e:
                     st.error(f"Erro ao carregar as classes: {e}")
+                    logging.error(f"Erro ao carregar as classes: {e}")
             else:
                 st.error("Por favor, forneça o arquivo com as classes.")
-
+                logging.warning("Arquivo de classes não fornecido ao carregar modelo existente.")
 
     elif model_option == "Treinar um novo modelo":
         # Seleção do modelo
@@ -1525,22 +1549,26 @@ def main():
                 with zipfile.ZipFile(zip_path, 'r') as zip_ref:
                     zip_ref.extractall(temp_dir)
                 data_dir = temp_dir
+                logging.info(f"Arquivo ZIP extraído para {data_dir}.")
 
                 st.write("Iniciando o treinamento supervisionado...")
                 model_data = train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_rate, batch_size, train_split, valid_split, use_weighted_loss, l2_lambda, patience, model_id="single_run", run_id=1)
 
                 if model_data is None:
                     st.error("Erro no treinamento do modelo.")
+                    logging.error("Erro no treinamento do modelo único.")
                     return
 
                 model, classes, metrics = model_data
                 # O modelo e as classes já estão armazenados no st.session_state
                 st.success("Treinamento concluído!")
+                logging.info("Treinamento do modelo único concluído com sucesso.")
 
                 # Salvar o modelo treinado
                 model_filename = f'{model_name}_run1.pth'
                 torch.save(model.state_dict(), model_filename)
                 st.write(f"Modelo salvo como `{model_filename}`")
+                logging.info(f"Modelo salvo como {model_filename}.")
 
                 # Disponibilizar para download do modelo
                 with open(model_filename, "rb") as file:
@@ -1553,6 +1581,7 @@ def main():
                     )
                 if btn:
                     st.success("Modelo baixado com sucesso!")
+                    logging.info(f"Modelo {model_filename} baixado com sucesso.")
 
                 # Salvar as classes em um arquivo
                 classes_data = "\n".join(classes)
@@ -1560,6 +1589,7 @@ def main():
                 with open(classes_filename, 'w') as f:
                     f.write(classes_data)
                 st.write(f"Classes salvas como `{classes_filename}`")
+                logging.info(f"Classes salvas como {classes_filename}.")
 
                 # Disponibilizar para download das classes
                 with open(classes_filename, "rb") as file:
@@ -1572,12 +1602,14 @@ def main():
                     )
                 if btn:
                     st.success("Classes baixadas com sucesso!")
+                    logging.info(f"Classes {classes_filename} baixadas com sucesso.")
 
                 # Salvar métricas em arquivo CSV
                 metrics_df = pd.DataFrame([metrics])
                 metrics_filename = f'metrics_{model_name}_run1.csv'
                 metrics_df.to_csv(metrics_filename, index=False)
                 st.write(f"Métricas salvas como `{metrics_filename}`")
+                logging.info(f"Métricas salvas como {metrics_filename}.")
 
                 # Disponibilizar para download das métricas
                 with open(metrics_filename, "rb") as file:
@@ -1590,11 +1622,13 @@ def main():
                     )
                 if btn:
                     st.success("Métricas baixadas com sucesso!")
+                    logging.info(f"Métricas {metrics_filename} baixadas com sucesso.")
 
                 # Removido a limpeza do diretório temporário conforme instrução
 
             except Exception as e:
                 st.error(f"Erro durante o treinamento do modelo único: {e}")
+                logging.error(f"Erro durante o treinamento do modelo único: {e}")
 
     # Avaliação de uma imagem individual
     st.header("Avaliação de Imagem")
@@ -1603,6 +1637,8 @@ def main():
         # Verificar se o modelo já foi carregado ou treinado
         if 'model' not in st.session_state or 'classes' not in st.session_state:
             st.warning("Nenhum modelo carregado ou treinado. Por favor, carregue um modelo existente ou treine um novo modelo.")
+            logging.warning("Nenhum modelo carregado ou treinado para avaliação de imagem.")
+
             # Opção para carregar um modelo existente
             model_file_eval = st.file_uploader("Faça upload do arquivo do modelo (.pt ou .pth)", type=["pt", "pth"], key="model_file_uploader_eval")
             if model_file_eval is not None:
@@ -1611,6 +1647,7 @@ def main():
                 model_eval = get_model(model_name_eval, num_classes_eval, dropout_p=0.5, fine_tune=False)
                 if model_eval is None:
                     st.error("Erro ao carregar o modelo.")
+                    logging.error("Erro ao carregar o modelo durante avaliação de imagem.")
                     return
                 try:
                     state_dict = torch.load(model_file_eval, map_location=device)
@@ -1618,8 +1655,10 @@ def main():
                     st.session_state['model'] = model_eval
                     st.session_state['trained_model_name'] = model_name_eval  # Armazena o nome do modelo treinado
                     st.success("Modelo carregado com sucesso!")
+                    logging.info(f"Modelo {model_name_eval} carregado com sucesso para avaliação de imagem.")
                 except Exception as e:
                     st.error(f"Erro ao carregar o modelo: {e}")
+                    logging.error(f"Erro ao carregar o modelo durante avaliação de imagem: {e}")
                     return
 
                 # Carregar as classes
@@ -1629,10 +1668,13 @@ def main():
                         classes_eval = classes_file_eval.read().decode("utf-8").splitlines()
                         st.session_state['classes'] = classes_eval
                         st.write(f"Classes carregadas: {classes_eval}")
+                        logging.info(f"Classes carregadas para avaliação de imagem: {classes_eval}")
                     except Exception as e:
                         st.error(f"Erro ao carregar as classes: {e}")
+                        logging.error(f"Erro ao carregar as classes durante avaliação de imagem: {e}")
                 else:
                     st.error("Por favor, forneça o arquivo com as classes.")
+                    logging.warning("Arquivo de classes não fornecido durante avaliação de imagem.")
         else:
             model_eval = st.session_state['model']
             classes_eval = st.session_state['classes']
@@ -1645,6 +1687,7 @@ def main():
                 eval_image = Image.open(eval_image_file).convert("RGB")
             except Exception as e:
                 st.error(f"Erro ao abrir a imagem: {e}")
+                logging.error(f"Erro ao abrir a imagem para avaliação: {e}")
                 return
 
             st.image(eval_image, caption='Imagem para avaliação', use_container_width=True)
@@ -1653,18 +1696,20 @@ def main():
                 class_name, confidence = evaluate_image(st.session_state['model'], eval_image, st.session_state['classes'])
                 st.write(f"**Classe Predita:** {class_name}")
                 st.write(f"**Confiança:** {confidence:.4f}")
+                logging.info(f"Imagem avaliada: Classe Predita - {class_name}, Confiança - {confidence:.4f}")
 
                 # Visualizar ativações
                 visualize_activations(st.session_state['model'], eval_image, st.session_state['classes'], model_name_eval, run_id=1)
             else:
                 st.error("Modelo ou classes não carregados. Por favor, carregue um modelo ou treine um novo modelo.")
+                logging.error("Modelo ou classes não carregados para avaliação de imagem.")
 
     st.write("### Documentação dos Procedimentos")
     st.write("Todas as etapas foram cuidadosamente registradas. Utilize esta documentação para reproduzir o experimento e analisar os resultados.")
 
     # Encerrar a aplicação
     st.write("Obrigado por utilizar o aplicativo!")
-
+    logging.info("Aplicação encerrada pelo usuário.")
 
 if __name__ == "__main__":
     main()

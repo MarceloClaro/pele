@@ -1,8 +1,9 @@
-import os
+import os 
 import zipfile
 import shutil
 import tempfile
 import random
+import uuid  # Importação para gerar run_id
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -64,7 +65,7 @@ set_seed(42)  # Definir a seed para reprodutibilidade
 # Inicializar o histórico de treinamentos no session_state
 if 'training_history' not in st.session_state:
     st.session_state.training_history = pd.DataFrame(columns=[
-        'Timestamp', 'Número de Classes', 'Modelo', 'Fine-Tune',
+        'Timestamp', 'Run_ID', 'Número de Classes', 'Modelo', 'Fine-Tune',
         'Épocas', 'Taxa de Aprendizagem', 'Tamanho de Lote',
         'Split Treino', 'Split Validação', 'L2 Regularization',
         'Paciência', 'Perda Final Treino', 'Perda Final Validação',
@@ -359,12 +360,11 @@ def visualize_embeddings(df, class_names):
     plt.legend(title='Classes', labels=class_names)
     plt.xlabel('Componente Principal 1')
     plt.ylabel('Componente Principal 2')
-    
-    # Exibir no Streamlit
+
     st.pyplot(plt)
     plt.close()  # Fechar a figura para liberar memória
 
-def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_rate, batch_size, train_split, valid_split, use_weighted_loss, l2_lambda, patience):
+def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_rate, batch_size, train_split, valid_split, use_weighted_loss, l2_lambda, patience, run_id):
     """
     Função principal para treinamento do modelo de classificação.
     """
@@ -592,12 +592,11 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
 
         # Atualizar histórico na barra lateral
         with st.sidebar.expander("Histórico de Treinamento", expanded=True):
-            timestamp_hist = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             # Gráfico de Perda
             fig_loss, ax_loss = plt.subplots(figsize=(5, 3))
             ax_loss.plot(st.session_state.train_losses, label='Perda de Treino')
             ax_loss.plot(st.session_state.valid_losses, label='Perda de Validação')
-            ax_loss.set_title(f'Histórico de Perda ({timestamp_hist})')
+            ax_loss.set_title(f'Histórico de Perda ({timestamp})')
             ax_loss.set_xlabel('Época')
             ax_loss.set_ylabel('Perda')
             ax_loss.legend()
@@ -608,7 +607,7 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
             fig_acc, ax_acc = plt.subplots(figsize=(5, 3))
             ax_acc.plot(st.session_state.train_accuracies, label='Acurácia de Treino')
             ax_acc.plot(st.session_state.valid_accuracies, label='Acurácia de Validação')
-            ax_acc.set_title(f'Histórico de Acurácia ({timestamp_hist})')
+            ax_acc.set_title(f'Histórico de Acurácia ({timestamp})')
             ax_acc.set_xlabel('Época')
             ax_acc.set_ylabel('Acurácia')
             ax_acc.legend()
@@ -622,7 +621,7 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
                 st.session_state.train_accuracies = []
                 st.session_state.valid_accuracies = []
                 st.session_state.training_history = pd.DataFrame(columns=[
-                    'Timestamp', 'Número de Classes', 'Modelo', 'Fine-Tune',
+                    'Timestamp', 'Run_ID', 'Número de Classes', 'Modelo', 'Fine-Tune',
                     'Épocas', 'Taxa de Aprendizagem', 'Tamanho de Lote',
                     'Split Treino', 'Split Validação', 'L2 Regularization',
                     'Paciência', 'Perda Final Treino', 'Perda Final Validação',
@@ -649,7 +648,7 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
 
     # Gráficos de Perda e Acurácia finais
     plot_metrics(st.session_state.train_losses, st.session_state.valid_losses, 
-                st.session_state.train_accuracies, st.session_state.valid_accuracies)
+                st.session_state.train_accuracies, st.session_state.valid_accuracies, run_id)
 
     # Avaliação Final no Conjunto de Teste
     st.write("**Avaliação no Conjunto de Teste**")
@@ -667,48 +666,19 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
     del train_loader, valid_loader
     gc.collect()
 
-    # Registrar o histórico de treinamento
-    final_train_loss = st.session_state.train_losses[-1]
-    final_valid_loss = st.session_state.valid_losses[-1]
-    final_train_acc = st.session_state.train_accuracies[-1]
-    final_valid_acc = st.session_state.valid_accuracies[-1]
-
-    new_entry = pd.DataFrame([{
-        'Timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        'Número de Classes': num_classes,
-        'Modelo': model_name,
-        'Fine-Tune': fine_tune,
-        'Épocas': epochs,
-        'Taxa de Aprendizagem': learning_rate,
-        'Tamanho de Lote': batch_size,
-        'Split Treino': train_split,
-        'Split Validação': valid_split,
-        'L2 Regularization': l2_lambda,
-        'Paciência': patience,
-        'Perda Final Treino': final_train_loss,
-        'Perda Final Validação': final_valid_loss,
-        'Acurácia Final Treino': final_train_acc,
-        'Acurácia Final Validação': final_valid_acc
-    }])
-
-    st.session_state.training_history = pd.concat([st.session_state.training_history, new_entry], ignore_index=True)
-
     return model, full_dataset.classes
 
-def plot_metrics(train_losses, valid_losses, train_accuracies, valid_accuracies):
+def plot_metrics(train_losses, valid_losses, train_accuracies, valid_accuracies, run_id):
     """
     Plota os gráficos de perda e acurácia.
     """
     epochs_range = range(1, len(train_losses) + 1)
     fig, ax = plt.subplots(1, 2, figsize=(14, 5))
 
-    # Get current timestamp
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
     # Gráfico de Perda
     ax[0].plot(epochs_range, train_losses, label='Treino')
     ax[0].plot(epochs_range, valid_losses, label='Validação')
-    ax[0].set_title(f'Perda por Época ({timestamp})')
+    ax[0].set_title('Perda por Época')
     ax[0].set_xlabel('Épocas')
     ax[0].set_ylabel('Perda')
     ax[0].legend()
@@ -716,12 +686,26 @@ def plot_metrics(train_losses, valid_losses, train_accuracies, valid_accuracies)
     # Gráfico de Acurácia
     ax[1].plot(epochs_range, train_accuracies, label='Treino')
     ax[1].plot(epochs_range, valid_accuracies, label='Validação')
-    ax[1].set_title(f'Acurácia por Época ({timestamp})')
+    ax[1].set_title('Acurácia por Época')
     ax[1].set_xlabel('Épocas')
     ax[1].set_ylabel('Acurácia')
     ax[1].legend()
 
-    st.pyplot(fig)
+    # Salvar a figura com run_id no nome
+    buffer = io.BytesIO()
+    fig.savefig(buffer, format="png")
+    buffer.seek(0)
+    st.image(buffer, caption='Perda e Acurácia por Época', use_column_width=True)
+
+    # Botão para download
+    btn = st.download_button(
+        label="Download dos Gráficos",
+        data=buffer,
+        file_name=f"metrics_plots_{run_id}.png",
+        mime="image/png",
+        key=f"download_metrics_{run_id}"
+    )
+
     plt.close(fig)  # Fechar a figura para liberar memória
 
 def compute_metrics(model, dataloader, classes):
@@ -930,7 +914,7 @@ def create_pascal_label_colormap():
 
     return colormap
 
-def visualize_activations(model, image, class_names, model_name, segmentation_model=None, segmentation=False):
+def visualize_activations(model, image, class_names, model_name, run_id, segmentation_model=None, segmentation=False):
     """
     Visualiza as ativações na imagem usando Grad-CAM e adiciona a segmentação de objetos.
     """
@@ -1206,9 +1190,6 @@ def main():
             else:
                 st.error("Por favor, forneça o arquivo com as classes.")
 
-        else:
-            st.warning("Por favor, forneça o modelo e o número de classes.")
-
     elif model_option == "Treinar um novo modelo":
         # Upload do arquivo ZIP
         zip_file = st.file_uploader("Upload do arquivo ZIP com as imagens", type=["zip"], key="zip_file_uploader")
@@ -1221,8 +1202,14 @@ def main():
                 zip_ref.extractall(temp_dir)
             data_dir = temp_dir
 
+            # Gerar um run_id único
+            run_id = uuid.uuid4().hex
+
             st.write("Iniciando o treinamento supervisionado...")
-            model_data = train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_rate, batch_size, train_split, valid_split, use_weighted_loss, l2_lambda, patience)
+            model_data = train_model(
+                data_dir, num_classes, model_name, fine_tune, epochs, learning_rate, batch_size,
+                train_split, valid_split, use_weighted_loss, l2_lambda, patience, run_id
+            )
 
             if model_data is None:
                 st.error("Erro no treinamento do modelo.")
@@ -1233,7 +1220,7 @@ def main():
             # O modelo e as classes já estão armazenados no st.session_state
             st.success("Treinamento concluído!")
 
-            # Opção para baixar o modelo treinado
+            # Opção para baixar o modelo treinado com run_id no nome do arquivo
             st.write("Faça o download do modelo treinado:")
             buffer = io.BytesIO()
             torch.save(model.state_dict(), buffer)
@@ -1241,26 +1228,23 @@ def main():
             btn = st.download_button(
                 label="Download do Modelo",
                 data=buffer,
-                file_name="modelo_treinado.pth",
+                file_name=f"modelo_treinado_{run_id}.pth",  # Inclui run_id no nome do arquivo
                 mime="application/octet-stream",
-                key="download_model_button"
+                key=f"download_model_button_{run_id}"
             )
 
-            # Salvar as classes em um arquivo
+            # Salvar as classes em um arquivo de texto com run_id
             classes_data = "\n".join(classes)
             st.download_button(
                 label="Download das Classes",
                 data=classes_data,
-                file_name="classes.txt",
+                file_name=f"classes_{run_id}.txt",
                 mime="text/plain",
-                key="download_classes_button"
+                key=f"download_classes_button_{run_id}"
             )
 
             # Limpar o diretório temporário
             shutil.rmtree(temp_dir)
-
-        else:
-            st.warning("Por favor, forneça os dados e as configurações corretas.")
 
     # Avaliação de uma imagem individual
     st.header("Avaliação de Imagem")
@@ -1296,8 +1280,6 @@ def main():
                     st.write(f"Classes carregadas: {classes_eval}")
                 else:
                     st.error("Por favor, forneça o arquivo com as classes.")
-            else:
-                st.info("Aguardando o upload do modelo e das classes.")
         else:
             model_eval = st.session_state['model']
             classes_eval = st.session_state['classes']
@@ -1325,8 +1307,8 @@ def main():
                     segmentation = st.checkbox("Visualizar Segmentação", value=True, key="segmentation_checkbox")
 
                 # Visualizar ativações e segmentação
-                model_name_for_visualization = st.session_state.get('trained_model_name', 'ResNet18')
-                visualize_activations(st.session_state['model'], eval_image, st.session_state['classes'], model_name_for_visualization, segmentation_model=segmentation_model, segmentation=segmentation)
+                model_name_for_visualization = st.session_state.get('trained_model_name', model_name)
+                visualize_activations(st.session_state['model'], eval_image, st.session_state['classes'], model_name_for_visualization, run_id, segmentation_model=segmentation_model, segmentation=segmentation)
             else:
                 st.error("Modelo ou classes não carregados. Por favor, carregue um modelo ou treine um novo modelo.")
 

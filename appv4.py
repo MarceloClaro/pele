@@ -33,6 +33,8 @@ import io
 import warnings
 from datetime import datetime
 from scipy import stats
+import torchvision  # Adicionado para evitar NameError
+import torchcam     # Adicionado para evitar NameError
 
 # Supressão dos avisos relacionados ao torch.classes
 warnings.filterwarnings("ignore", category=UserWarning, message=".*torch.classes.*")

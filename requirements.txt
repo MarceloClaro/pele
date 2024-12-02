@@ -1,6 +1,7 @@
 streamlit
 torch
 torchvision
+torchaudio
 numpy
 pandas
 Pillow

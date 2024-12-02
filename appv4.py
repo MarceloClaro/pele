@@ -900,6 +900,7 @@ def compute_metrics(model, dataloader, classes, model_name, run_id):
     metrics_filename = f'metrics_{model_name}_run{run_id}.csv'
     metrics_df.to_csv(metrics_filename, index=False)
     st.write(f"Métricas salvas como `{metrics_filename}`")
+    logging.info(f"Métricas salvas como {metrics_filename}.")
 
     # Disponibilizar para download
     with open(metrics_filename, "rb") as file:
@@ -1417,94 +1418,302 @@ def main():
                                 st.success(f"Métricas {model_name}_run{run} baixadas com sucesso!")
                                 logging.info(f"Métricas {model_name}_run{run} baixadas com sucesso.")
 
-                # Exibir as métricas coletadas após o treinamento
-                if len(st.session_state['all_model_metrics']) > 0:
-                    st.header("Métricas de Desempenho de Todos os Modelos")
-                    metrics_df = pd.DataFrame(st.session_state['all_model_metrics'])
-                    st.dataframe(metrics_df)
+            except Exception as e:
+                st.error(f"Erro durante o treinamento do modelo múltiplo: {e}")
+                logging.error(f"Erro durante o treinamento do modelo múltiplo: {e}")
 
-                    # Salvar métricas coletadas em um único arquivo
-                    all_metrics_filename = 'all_model_metrics.csv'
-                    metrics_df.to_csv(all_metrics_filename, index=False)
-                    st.write(f"Métricas de todos os modelos salvas como `{all_metrics_filename}`")
-                    logging.info(f"Métricas de todos os modelos salvas como {all_metrics_filename}.")
+        # Exibir as métricas coletadas após o treinamento
+        if len(st.session_state['all_model_metrics']) > 0:
+            st.header("Métricas de Desempenho de Todos os Modelos")
+            metrics_df = pd.DataFrame(st.session_state['all_model_metrics'])
+            st.dataframe(metrics_df)
 
-                    # Disponibilizar para download das métricas coletadas
-                    with open(all_metrics_filename, "rb") as file:
+            # Salvar métricas coletadas em um único arquivo
+            all_metrics_filename = 'all_model_metrics.csv'
+            metrics_df.to_csv(all_metrics_filename, index=False)
+            st.write(f"Métricas de todos os modelos salvas como `{all_metrics_filename}`")
+            logging.info(f"Métricas de todos os modelos salvas como {all_metrics_filename}.")
+
+            # Disponibilizar para download das métricas coletadas
+            with open(all_metrics_filename, "rb") as file:
+                btn = st.download_button(
+                    label="Download das Métricas de Todos os Modelos",
+                    data=file,
+                    file_name=all_metrics_filename,
+                    mime="text/csv",
+                    key=f"download_all_model_metrics_{uuid.uuid4()}"
+                )
+            if btn:
+                st.success("Métricas de todos os modelos baixadas com sucesso!")
+                logging.info("Métricas de todos os modelos baixadas com sucesso.")
+
+            # Calcular Intervalos de Confiança para Cada Métrica
+            st.subheader("Intervalos de Confiança para as Métricas de Desempenho")
+            confidence_level = 0.95
+            for metric in ['Accuracy', 'Precision', 'Recall', 'F1_Score', 'ROC_AUC']:
+                data = metrics_df[metric].dropna()
+                if len(data) > 1:
+                    conf_interval = stats.t.interval(confidence_level, len(data)-1, loc=np.mean(data), scale=stats.sem(data))
+                    st.write(f"**{metric}:** Média = {np.mean(data):.4f}, Intervalo de Confiança de {int(confidence_level*100)}% = [{conf_interval[0]:.4f}, {conf_interval[1]:.4f}]")
+                elif len(data) == 1:
+                    st.write(f"**{metric}:** Apenas uma observação disponível.")
+                else:
+                    st.write(f"**{metric}:** Nenhum dado disponível.")
+
+            # Realizar ANOVA para Cada Métrica
+            st.subheader("Análise de Variância (ANOVA) para as Métricas de Desempenho")
+            for metric in ['Accuracy', 'Precision', 'Recall', 'F1_Score', 'ROC_AUC']:
+                data = metrics_df[['Model', metric]].dropna()
+                st.write(f"**Métrica: {metric}**")
+                # Verificar se há dados suficientes
+                group_sizes = data.groupby('Model').size()
+                st.write("**Tamanhos dos Grupos (Modelos):**")
+                st.write(group_sizes)
+                if len(group_sizes) >= 2 and (group_sizes >= 2).all():
+                    # Preparar os dados para ANOVA
+                    groups = data['Model'].values
+                    metric_data = data[metric].values
+                    f_val, p_val = perform_anova(metric_data, groups)
+                    visualize_anova_results(f_val, p_val)
+                else:
+                    st.write(f"**{metric}:** ANOVA não pode ser realizada. É necessário pelo menos dois modelos com pelo menos duas observações cada.")
+
+            # Realizar Teste Tukey HSD para Cada Métrica
+            st.subheader("Teste Post-Hoc Tukey HSD para as Métricas de Desempenho")
+            for metric in ['Accuracy', 'Precision', 'Recall', 'F1_Score', 'ROC_AUC']:
+                data = metrics_df[['Model', metric]].dropna()
+                group_sizes = data.groupby('Model').size()
+                if len(group_sizes) >= 2 and (group_sizes >= 2).all():
+                    # Supondo que cada modelo seja um grupo distinto
+                    tukey = pairwise_tukeyhsd(endog=data[metric], groups=data['Model'], alpha=0.05)
+                    st.write(f"**{metric}:**")
+                    st.text(tukey.summary())
+                    # Salvar o resumo do Tukey
+                    tukey_summary = tukey.summary().as_text()
+                    tukey_filename = f'tukey_{metric}_run{run_id}.txt'
+                    with open(tukey_filename, 'w') as f:
+                        f.write(tukey_summary)
+                    st.write(f"Resumo do Teste Tukey HSD salvo como `{tukey_filename}`")
+                    logging.info(f"Resumo do Teste Tukey HSD salvo como {tukey_filename}.")
+
+                    # Disponibilizar para download do resumo do Tukey
+                    with open(tukey_filename, "rb") as file:
                         btn = st.download_button(
-                            label="Download das Métricas de Todos os Modelos",
+                            label=f"Download do Resumo Tukey para {metric}",
                             data=file,
-                            file_name=all_metrics_filename,
-                            mime="text/csv",
-                            key=f"download_all_model_metrics_{uuid.uuid4()}"
+                            file_name=tukey_filename,
+                            mime="text/plain",
+                            key=f"download_tukey_{metric}_run{run_id}_{uuid.uuid4()}"
                         )
                     if btn:
-                        st.success("Métricas de todos os modelos baixadas com sucesso!")
-                        logging.info("Métricas de todos os modelos baixadas com sucesso.")
+                        st.success(f"Resumo Tukey para {metric} baixado com sucesso!")
+                        logging.info(f"Resumo Tukey para {metric} baixado com sucesso.")
+                else:
+                    st.write(f"**{metric}:** Teste Tukey HSD não pode ser realizado. É necessário pelo menos dois modelos com pelo menos duas observações cada.")
 
-                    # Calcular Intervalos de Confiança para Cada Métrica
-                    st.subheader("Intervalos de Confiança para as Métricas de Desempenho")
-                    confidence_level = 0.95
-                    for metric in ['Accuracy', 'Precision', 'Recall', 'F1_Score', 'ROC_AUC']:
-                        data = metrics_df[metric].dropna()
-                        if len(data) > 1:
-                            conf_interval = stats.t.interval(confidence_level, len(data)-1, loc=np.mean(data), scale=stats.sem(data))
-                            st.write(f"**{metric}:** Média = {np.mean(data):.4f}, Intervalo de Confiança de {int(confidence_level*100)}% = [{conf_interval[0]:.4f}, {conf_interval[1]:.4f}]")
-                        elif len(data) == 1:
-                            st.write(f"**{metric}:** Apenas uma observação disponível.")
-                        else:
-                            st.write(f"**{metric}:** Nenhum dado disponível.")
 
-                    # Realizar ANOVA para Cada Métrica
-                    st.subheader("Análise de Variância (ANOVA) para as Métricas de Desempenho")
-                    for metric in ['Accuracy', 'Precision', 'Recall', 'F1_Score', 'ROC_AUC']:
-                        data = metrics_df[['Model', metric]].dropna()
-                        st.write(f"**Métrica: {metric}**")
-                        # Verificar se há dados suficientes
-                        group_sizes = data.groupby('Model').size()
-                        st.write("**Tamanhos dos Grupos (Modelos):**")
-                        st.write(group_sizes)
-                        if len(group_sizes) >= 2 and (group_sizes >= 2).all():
-                            # Preparar os dados para ANOVA
-                            groups = data['Model'].values
-                            metric_data = data[metric].values
-                            f_val, p_val = perform_anova(metric_data, groups)
-                            visualize_anova_results(f_val, p_val)
-                        else:
-                            st.write(f"**{metric}:** ANOVA não pode ser realizada. É necessário pelo menos dois modelos com pelo menos duas observações cada.")
+def plot_metrics(train_losses, valid_losses, train_accuracies, valid_accuracies, model_name, run_id):
+    """
+    Plota os gráficos de perda e acurácia e adiciona um botão de download para o gráfico final.
+    """
+    epochs_range = range(1, len(train_losses) + 1)
+    fig, ax = plt.subplots(1, 2, figsize=(14, 5))
 
-                    # Realizar Teste Tukey HSD para Cada Métrica
-                    st.subheader("Teste Post-Hoc Tukey HSD para as Métricas de Desempenho")
-                    for metric in ['Accuracy', 'Precision', 'Recall', 'F1_Score', 'ROC_AUC']:
-                        data = metrics_df[['Model', metric]].dropna()
-                        group_sizes = data.groupby('Model').size()
-                        if len(group_sizes) >= 2 and (group_sizes >= 2).all():
-                            # Supondo que cada modelo seja um grupo distinto
-                            tukey = pairwise_tukeyhsd(endog=data[metric], groups=data['Model'], alpha=0.05)
-                            st.write(f"**{metric}:**")
-                            st.text(tukey.summary())
-                            # Salvar o resumo do Tukey
-                            tukey_summary = tukey.summary().as_text()
-                            tukey_filename = f'tukey_{metric}_run{run_id}.txt'
-                            with open(tukey_filename, 'w') as f:
-                                f.write(tukey_summary)
-                            st.write(f"Resumo do Teste Tukey HSD salvo como `{tukey_filename}`")
-                            logging.info(f"Resumo do Teste Tukey HSD salvo como {tukey_filename}.")
+    # Gráfico de Perda
+    ax[0].plot(epochs_range, train_losses, label='Treino')
+    ax[0].plot(epochs_range, valid_losses, label='Validação')
+    ax[0].set_title(f'Perda por Época - {model_name} (Execução {run_id})')
+    ax[0].set_xlabel('Épocas')
+    ax[0].set_ylabel('Perda')
+    ax[0].legend()
 
-                            # Disponibilizar para download do resumo do Tukey
-                            with open(tukey_filename, "rb") as file:
-                                btn = st.download_button(
-                                    label=f"Download do Resumo Tukey para {metric}",
-                                    data=file,
-                                    file_name=tukey_filename,
-                                    mime="text/plain",
-                                    key=f"download_tukey_{metric}_run{run_id}_{uuid.uuid4()}"
-                                )
-                            if btn:
-                                st.success(f"Resumo Tukey para {metric} baixado com sucesso!")
-                                logging.info(f"Resumo Tukey para {metric} baixado com sucesso.")
-                        else:
-                            st.write(f"**{metric}:** Teste Tukey HSD não pode ser realizado. É necessário pelo menos dois modelos com pelo menos duas observações cada.")
+    # Gráfico de Acurácia
+    ax[1].plot(epochs_range, train_accuracies, label='Treino')
+    ax[1].plot(epochs_range, valid_accuracies, label='Validação')
+    ax[1].set_title(f'Acurácia por Época - {model_name} (Execução {run_id})')
+    ax[1].set_xlabel('Épocas')
+    ax[1].set_ylabel('Acurácia')
+    ax[1].legend()
+
+    plt.tight_layout()
+    plot_filename = f'loss_accuracy_final_{model_name}_run{run_id}.png'
+    fig.savefig(plot_filename)
+    st.image(plot_filename, caption='Perda e Acurácia Finais', use_container_width=True)
+
+    # Disponibilizar para download
+    with open(plot_filename, "rb") as file:
+        btn = st.download_button(
+            label="Download dos Gráficos de Perda e Acurácia Finais",
+            data=file,
+            file_name=plot_filename,
+            mime="image/png",
+            key=f"download_final_loss_accuracy_{model_name}_run{run_id}_{uuid.uuid4()}"
+        )
+    if btn:
+        st.success("Gráficos de Perda e Acurácia Finais baixados com sucesso!")
+
+    plt.close(fig)  # Fechar a figura para liberar memória
+
+
+def compute_metrics(model, dataloader, classes, model_name, run_id):
+    """
+    Calcula métricas detalhadas e exibe matriz de confusão e relatório de classificação, adicionando botões de download para os resultados.
+    """
+    model.eval()
+    all_preds = []
+    all_labels = []
+    all_probs = []
+
+    with torch.no_grad():
+        for inputs, labels in dataloader:
+            inputs = inputs.to(device)
+            labels = labels.to(device)
+
+            outputs = model(inputs)
+            probabilities = torch.nn.functional.softmax(outputs, dim=1)
+            _, preds = torch.max(outputs, 1)
+
+            all_preds.extend(preds.cpu().numpy())
+            all_labels.extend(labels.cpu().numpy())
+            all_probs.extend(probabilities.cpu().numpy())
+
+    # Relatório de Classificação
+    report = classification_report(all_labels, all_preds, target_names=classes, output_dict=True)
+    report_df = pd.DataFrame(report).transpose()
+    st.text("Relatório de Classificação:")
+    st.write(report_df)
+
+    # Salvar relatório de classificação
+    report_filename = f'classification_report_{model_name}_run{run_id}.csv'
+    report_df.to_csv(report_filename, index=False)
+    st.write(f"Relatório de classificação salvo como `{report_filename}`")
+
+    # Disponibilizar para download
+    with open(report_filename, "rb") as file:
+        btn = st.download_button(
+            label="Download do Relatório de Classificação",
+            data=file,
+            file_name=report_filename,
+            mime="text/csv",
+            key=f"download_classification_report_{model_name}_run{run_id}_{uuid.uuid4()}"
+        )
+    if btn:
+        st.success("Relatório de Classificação baixado com sucesso!")
+
+    # Matriz de Confusão Normalizada
+    cm = confusion_matrix(all_labels, all_preds, normalize='true')
+    fig, ax = plt.subplots()
+    sns.heatmap(cm, annot=True, fmt='.2f', cmap='Blues', xticklabels=classes, yticklabels=classes, ax=ax)
+    ax.set_xlabel('Predito')
+    ax.set_ylabel('Verdadeiro')
+    ax.set_title('Matriz de Confusão Normalizada')
+    plt.tight_layout()
+    cm_filename = f'confusion_matrix_{model_name}_run{run_id}.png'
+    fig.savefig(cm_filename)
+    st.image(cm_filename, caption='Matriz de Confusão Normalizada', use_container_width=True)
+
+    # Disponibilizar para download
+    with open(cm_filename, "rb") as file:
+        btn = st.download_button(
+            label="Download da Matriz de Confusão",
+            data=file,
+            file_name=cm_filename,
+            mime="image/png",
+            key=f"download_confusion_matrix_{model_name}_run{run_id}_{uuid.uuid4()}"
+        )
+    if btn:
+        st.success("Matriz de Confusão baixada com sucesso!")
+
+    # Curva ROC
+    roc_auc = None
+    if len(classes) == 2:
+        fpr, tpr, thresholds = roc_curve(all_labels, [p[1] for p in all_probs])
+        roc_auc = roc_auc_score(all_labels, [p[1] for p in all_probs])
+        fig, ax = plt.subplots()
+        ax.plot(fpr, tpr, label='AUC = %0.2f' % roc_auc)
+        ax.plot([0, 1], [0, 1], 'k--')
+        ax.set_xlabel('Taxa de Falsos Positivos')
+        ax.set_ylabel('Taxa de Verdadeiros Positivos')
+        ax.set_title('Curva ROC')
+        ax.legend(loc='lower right')
+        plt.tight_layout()
+        roc_filename = f'roc_curve_{model_name}_run{run_id}.png'
+        fig.savefig(roc_filename)
+        st.image(roc_filename, caption='Curva ROC', use_container_width=True)
+
+        # Disponibilizar para download
+        with open(roc_filename, "rb") as file:
+            btn = st.download_button(
+                label="Download da Curva ROC",
+                data=file,
+                file_name=roc_filename,
+                mime="image/png",
+                key=f"download_roc_curve_{model_name}_run{run_id}_{uuid.uuid4()}"
+            )
+        if btn:
+            st.success("Curva ROC baixada com sucesso!")
+    else:
+        # Multiclasse
+        binarized_labels = label_binarize(all_labels, classes=range(len(classes)))
+        roc_auc = roc_auc_score(binarized_labels, np.array(all_probs), average='weighted', multi_class='ovr')
+        st.write(f"AUC-ROC Média Ponderada: {roc_auc:.4f}")
+
+        # Salvar AUC-ROC
+        auc_filename = f'auc_roc_{model_name}_run{run_id}.txt'
+        with open(auc_filename, 'w') as f:
+            f.write(f"AUC-ROC Média Ponderada: {roc_auc:.4f}")
+        st.write(f"AUC-ROC Média Ponderada salvo como `{auc_filename}`")
+
+        # Disponibilizar para download
+        with open(auc_filename, "rb") as file:
+            btn = st.download_button(
+                label="Download do AUC-ROC",
+                data=file,
+                file_name=auc_filename,
+                mime="text/plain",
+                key=f"download_auc_roc_{model_name}_run{run_id}_{uuid.uuid4()}"
+            )
+        if btn:
+            st.success("AUC-ROC baixado com sucesso!")
+
+    # Calcule as métricas de desempenho
+    accuracy = report['accuracy']
+    precision = report['weighted avg']['precision']
+    recall = report['weighted avg']['recall']
+    f1_score = report['weighted avg']['f1-score']
+    # 'roc_auc' já foi calculado acima
+
+    # Retornar as métricas em um dicionário
+    metrics = {
+        'Model': model_name,
+        'Run_ID': run_id,
+        'Accuracy': accuracy,
+        'Precision': precision,
+        'Recall': recall,
+        'F1_Score': f1_score,
+        'ROC_AUC': roc_auc if roc_auc is not None else np.nan
+    }
+
+    # Salvar métricas em arquivo CSV
+    metrics_df = pd.DataFrame([metrics])
+    metrics_filename = f'metrics_{model_name}_run{run_id}.csv'
+    metrics_df.to_csv(metrics_filename, index=False)
+    st.write(f"Métricas salvas como `{metrics_filename}`")
+    logging.info(f"Métricas salvas como {metrics_filename}.")
+
+    # Disponibilizar para download
+    with open(metrics_filename, "rb") as file:
+        btn = st.download_button(
+            label="Download das Métricas",
+            data=file,
+            file_name=metrics_filename,
+            mime="text/csv",
+            key=f"download_metrics_{model_name}_run{run_id}_{uuid.uuid4()}"
+        )
+    if btn:
+        st.success("Métricas baixadas com sucesso!")
+
+    return metrics
 
 
 def error_analysis(model, dataloader, classes, model_name, run_id):

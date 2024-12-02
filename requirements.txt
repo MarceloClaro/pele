@@ -11,5 +11,5 @@ torchcam
 opencv-python-headless
 statsmodels
 psutil
-pip install --upgrade torch torchvision
-pip install --upgrade torchcam
+upgrade torch torchvision
+upgrade torchcam

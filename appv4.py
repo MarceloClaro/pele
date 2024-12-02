@@ -197,6 +197,78 @@ def get_model(model_name, num_classes, dropout_p=0.5, fine_tune=False):
         st.error(f"Erro ao carregar o modelo: {e}")
         return None
 
+def apply_transforms_and_get_embeddings(dataset, model, transform, batch_size=16):
+    """
+    Aplica as transformações às imagens, extrai os embeddings e retorna um DataFrame.
+    """
+    def pil_collate_fn(batch):
+        images, labels = zip(*batch)
+        return list(images), torch.tensor(labels)
+
+    data_loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, collate_fn=pil_collate_fn)
+    embeddings_list = []
+    labels_list = []
+    file_paths_list = []
+    augmented_images_list = []
+
+    # Extrair todas as camadas exceto a última para obter embeddings
+    model_embedding = nn.Sequential(*list(model.children())[:-1])
+    model_embedding.eval()
+    model_embedding.to(device)
+
+    indices = dataset.indices if hasattr(dataset, 'indices') else list(range(len(dataset)))
+    index_pointer = 0
+
+    with torch.no_grad():
+        for images, labels in data_loader:
+            images_augmented = [transform(img) for img in images]
+            images_augmented = torch.stack(images_augmented).to(device)
+            embeddings = model_embedding(images_augmented)
+            embeddings = embeddings.view(embeddings.size(0), -1).cpu().numpy()
+            embeddings_list.extend(embeddings)
+            labels_list.extend(labels.numpy())
+            augmented_images_list.extend([img.permute(1, 2, 0).numpy() for img in images_augmented.cpu()])
+            if hasattr(dataset, 'dataset') and hasattr(dataset.dataset, 'samples'):
+                batch_indices = indices[index_pointer:index_pointer + len(images)]
+                file_paths = [dataset.dataset.samples[i][0] for i in batch_indices]
+                file_paths_list.extend(file_paths)
+                index_pointer += len(images)
+            else:
+                file_paths_list.extend(['N/A'] * len(labels))
+
+    df = pd.DataFrame({
+        'file_path': file_paths_list,
+        'label': labels_list,
+        'embedding': embeddings_list,
+        'augmented_image': augmented_images_list
+    })
+
+    return df
+
+def display_all_augmented_images(df, class_names, max_images=20):
+    """
+    Exibe todas as imagens augmentadas do DataFrame de forma organizada.
+    """
+    st.write(f"**Visualização das Primeiras {max_images} Imagens após Data Augmentation:**")
+    df = df.head(max_images)
+    num_images = len(df)
+    if num_images == 0:
+        st.write("Nenhuma imagem para exibir.")
+        return
+    
+    cols_per_row = 5  # Número de colunas por linha
+    rows = (num_images + cols_per_row - 1) // cols_per_row  # Calcula o número de linhas necessárias
+    
+    for row in range(rows):
+        cols = st.columns(cols_per_row)
+        for col in range(cols_per_row):
+            idx = row * cols_per_row + col
+            if idx < num_images:
+                image = df.iloc[idx]['augmented_image']
+                label = df.iloc[idx]['label']
+                with cols[col]:
+                    st.image(image, caption=class_names[label], use_container_width=True)
+
 def train_model(train_loader, valid_loader, model, criterion, optimizer, epochs, patience):
     """
     Função principal para treinamento do modelo de classificação.

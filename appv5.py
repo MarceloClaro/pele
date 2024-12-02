@@ -505,7 +505,7 @@ def train_model(train_loader, valid_loader, test_loader, num_classes, model_name
                     st.error(f"Erro durante o treinamento: {e}")
                     return None
 
-                # Adicione estas linhas para depuração
+                # As linhas de depuração foram removidas/commentadas
                 # st.write(f"Outputs shape: {outputs.shape}, Labels shape: {labels.shape}")
 
                 _, preds = torch.max(outputs, 1)
@@ -598,9 +598,36 @@ def train_model(train_loader, valid_loader, test_loader, num_classes, model_name
                         model.load_state_dict(best_model_wts)
                     break
 
-    # [Restante da função train_model permanece inalterado até a parte de salvar o histórico]
+    # Carregar os melhores pesos do modelo se houver
+    if best_model_wts is not None:
+        model.load_state_dict(best_model_wts)
 
-    # Após armazenar as métricas e antes de salvar os arquivos
+    # Gráficos de Perda e Acurácia finais
+    plot_metrics(
+        st.session_state[train_losses_key],
+        st.session_state[valid_losses_key],
+        st.session_state[train_accuracies_key],
+        st.session_state[valid_accuracies_key],
+        model_name=model_name,
+        run_id=run_id
+    )
+
+    # Avaliação Final no Conjunto de Teste
+    st.write("**Avaliação no Conjunto de Teste**")
+    metrics = compute_metrics(model, test_loader, st.session_state['classes'], model_name, run_id)
+
+    # Análise de Erros
+    st.write("**Análise de Erros**")
+    error_analysis(model, test_loader, st.session_state['classes'], model_name, run_id)
+
+    # Clusterização e Análise Comparativa
+    st.write("**Análise de Clusterização**")
+    perform_clustering(model, test_loader, st.session_state['classes'], model_name, run_id)
+
+    # Armazenar o modelo e as classes no st.session_state
+    st.session_state['model'] = model
+    st.session_state['trained_model_name'] = model_name  # Armazena o nome do modelo treinado
+
     # Armazenar as métricas de treinamento
     training_metrics = {
         'Model': model_name,
@@ -620,8 +647,62 @@ def train_model(train_loader, valid_loader, test_loader, num_classes, model_name
     # Salvar o histórico atualizado
     save_history(st.session_state['all_model_metrics'])
 
-    # [Continua salvando os arquivos do modelo, métricas, etc.]
-    # Restante do código permanece o mesmo...
+    # Salvar o modelo treinado
+    model_filename = f'{model_name}_{run_id}.pth'
+    torch.save(model.state_dict(), model_filename)
+    st.write(f"Modelo treinado salvo como `{model_filename}`")
+
+    # Disponibilizar para download do modelo treinado
+    unique_id_model = uuid.uuid4()
+    with open(model_filename, "rb") as file:
+        btn_model = st.download_button(
+            label="Download do Modelo Treinado",
+            data=file,
+            file_name=model_filename,
+            mime="application/octet-stream",
+            key=f"download_model_{model_name}_{run_id}_{unique_id_model}"
+        )
+    if btn_model:
+        st.success("Modelo treinado baixado com sucesso!")
+
+    # Salvar as classes em um arquivo
+    classes_data = "\n".join(st.session_state['classes'])
+    classes_filename = f'classes_{model_name}_{run_id}.txt'
+    with open(classes_filename, 'w') as f:
+        f.write(classes_data)
+    st.write(f"Classes salvas como `{classes_filename}`")
+
+    # Disponibilizar para download das classes
+    unique_id_classes = uuid.uuid4()
+    with open(classes_filename, "rb") as file:
+        btn_classes = st.download_button(
+            label="Download das Classes",
+            data=file,
+            file_name=classes_filename,
+            mime="text/plain",
+            key=f"download_classes_{model_name}_{run_id}_{unique_id_classes}"
+        )
+    if btn_classes:
+        st.success("Classes baixadas com sucesso!")
+
+    # Salvar métricas em arquivo CSV
+    metrics_df = pd.DataFrame([metrics])
+    metrics_filename = f'metrics_{model_name}_{run_id}.csv'
+    metrics_df.to_csv(metrics_filename, index=False)
+    st.write(f"Métricas salvas como `{metrics_filename}`")
+
+    # Disponibilizar para download das métricas
+    unique_id_metrics = uuid.uuid4()
+    with open(metrics_filename, "rb") as file:
+        btn = st.download_button(
+            label="Download das Métricas",
+            data=file,
+            file_name=metrics_filename,
+            mime="text/csv",
+            key=f"download_metrics_{model_name}_{run_id}_{unique_id_metrics}"
+        )
+    if btn:
+        st.success("Métricas baixadas com sucesso!")
 
     return model, st.session_state['classes'], metrics
 

@@ -11,5 +11,3 @@ torchcam
 opencv-python-headless
 statsmodels
 psutil
-torch torchvision
-torchcam

@@ -2,6 +2,7 @@ import os
 import zipfile
 import random
 import tempfile
+import uuid
 import json
 import numpy as np
 import pandas as pd

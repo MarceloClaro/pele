@@ -1,4 +1,5 @@
 streamlit 
+copy
 torch 
 torchvision
 numpy 
@@ -11,4 +12,4 @@ torchcam
 opencv-python-headless
 statsmodels
 psutil
-cupy
+torchins
